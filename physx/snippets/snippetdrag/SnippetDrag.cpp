@@ -62,11 +62,16 @@ PxArticulation*			gArticulation	= NULL;
 PxArticulationLink*		lastLink		= NULL;
 
 void applyDrag(){
-	PxArticulationLink* link = lastLink;
-	PxVec3 vel = link->getLinearVelocity();
-	static float CD = 10.0f;
-	PxVec3 drag = vel*CD;
-	link->addForce(-drag);
+	const PxU32 n_links		= 40;
+	const PxU32 startIndex	= 0;
+	PxArticulationLink* links[n_links];
+	gArticulation->getLinks(links, n_links, startIndex);
+	static float CD = 0.2f;
+	for(PxU32 ii = 0; ii<n_links; ii++){
+		PxVec3 vel = links[ii]->getLinearVelocity();
+		PxVec3 drag = vel*CD;
+		links[ii]->addForce(-drag);
+	}
 }
 
 void initPhysics(bool /*interactive*/)
