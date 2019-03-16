@@ -71,6 +71,8 @@ const float capsuleMass					= 1.0f;
 
 const float gravity						= 9.81f;
 
+PxSphericalJoint* baseJoint				= NULL;
+
 float get_positions(float* posx, float* posy){
 	// Get positions
 	const PxU32 startIndex	= 0;
@@ -83,12 +85,10 @@ float get_positions(float* posx, float* posy){
 		posx[ii] = pos.x;
 		posy[ii] = pos.y;
 	}
-	std::cout.precision(10);
-	std::cout << "Error: " << error << std::endl;
 	return error;
 }
 
-void save_positions(float* posx, float* posy, float force){
+void log(float* posx, float* posy, float force, PxVec3 force_meas, float error){
 	// Save data
 	const static char* dir = "/home/xander/Google Drive/Thesis/src/catenary_analysis/data/";
 	char fname[40];
@@ -96,12 +96,19 @@ void save_positions(float* posx, float* posy, float force){
 	std::cout << fname << std::endl;
 	std::ofstream file;
 	file.open(fname);
+	const static int length_head = 11;
+	file << "Length_head: "	<<  length_head << std::endl;
 	file << "Number: "		<<  n_links << std::endl;
 	file << "Mass: "		<<  capsuleMass << std::endl;
 	file << "HalfHeight: "	<<  halfHeight << std::endl;
 	file << "Scale: "		<<  scale << std::endl;
 	file << "Force: "		<<  force << std::endl;
 	file << "Gravity: "		<<  gravity << std::endl;
+	file << "Fx_base: "		<<  force_meas.x << std::endl;
+	file << "Fy_base: "		<<  force_meas.y << std::endl;
+	file << "Fz_base: "		<<  force_meas.z << std::endl;
+	file << "Error: "		<<  error << std::endl;
+
 	// CSV header
 	file << "x_coor" 		<< "," << "y_coor" << std::endl;
 	for(int ii = 0; ii<(int)n_links; ii++){
@@ -112,12 +119,11 @@ void save_positions(float* posx, float* posy, float force){
 
 
 void applyDrag(){
-	const PxU32 n_links		= 40;
 	const PxU32 startIndex	= 0;
 	PxArticulationLink* links[n_links];
 	gArticulation->getLinks(links, n_links, startIndex);
 	static float CD = 2.0f;
-	for(PxU32 ii = 0; ii<n_links; ii++){
+	for(PxU32 ii = 0; ii<nbCapsules; ii++){
 		PxVec3 vel = links[ii]->getLinearVelocity();
 		PxVec3 drag = vel*CD;
 		links[ii]->addForce(-drag);
@@ -153,9 +159,6 @@ void initPhysics(bool /*interactive*/)
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
-	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0,1,0,0), *gMaterial);
-	gScene->addActor(*groundPlane);
-
 	gArticulation = gPhysics->createArticulation();
 
 	// Stabilization can create artefacts on jointed objects so we just disable it
@@ -167,11 +170,9 @@ void initPhysics(bool /*interactive*/)
 
 	const PxVec3 initPos(0.0f, 24.0f, 0.0f);
 	PxVec3 pos = initPos;
-	PxShape* capsuleShape = gPhysics->createShape(PxCapsuleGeometry(radius, halfHeight), *gMaterial);
+	PxShape* capsuleShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* firstLink = NULL;
 	PxArticulationLink* parent = NULL;
-
-	const bool overlappingLinks = true;	// Change this for another kind of rope
 
 	// Create rope
 	for(PxU32 i=0;i<nbCapsules;i++)
@@ -186,22 +187,10 @@ void initPhysics(bool /*interactive*/)
 		PxArticulationJointBase* joint = link->getInboundJoint();
 		if(joint)	// Will be null for root link
 		{
-			if(overlappingLinks)
-			{
-				joint->setParentPose(PxTransform(PxVec3(halfHeight, 0.0f, 0.0f)));
-				joint->setChildPose(PxTransform(PxVec3(-halfHeight, 0.0f, 0.0f)));
-			}
-			else
-			{
-				joint->setParentPose(PxTransform(PxVec3(radius + halfHeight, 0.0f, 0.0f)));
-				joint->setChildPose(PxTransform(PxVec3(-radius - halfHeight, 0.0f, 0.0f)));
-			}
+			joint->setParentPose(PxTransform(PxVec3(halfHeight, 0.0f, 0.0f)));
+			joint->setChildPose(PxTransform(PxVec3(-halfHeight, 0.0f, 0.0f)));
 		}
-
-		if(overlappingLinks)
-			pos.x += (radius + halfHeight*2.0f);
-		else
-			pos.x += (radius + halfHeight) * 2.0f;
+		pos.x += halfHeight * 2.0f;
 		parent = link;
 	}
 	lastLink = parent;
@@ -213,8 +202,8 @@ void initPhysics(bool /*interactive*/)
 		PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
 		PxRigidStatic* anchor = PxCreateStatic(*gPhysics, PxTransform(initPos), *anchorShape);
 		gScene->addActor(*anchor);
-		PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
-		PX_UNUSED(j);
+		baseJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
+		PX_UNUSED(baseJoint);
 	}
 }
 
@@ -250,8 +239,19 @@ void stepPhysics(bool /*interactive*/)
 
 	error = get_positions(posx, posy);
 
+	// Determine forces baseJoint
+	PxVec3 force_meas;
+	PxVec3 torque_meas;
+	baseJoint->getConstraint()->getForce(force_meas,torque_meas);
+
+	// Report forces and error
+	std::cout.precision(10);
+	char buff[100];
+	sprintf(buff,"Fx: %+012.4f, Fy: %+012.4f, Fz: %+012.4f, Error: %+08.6f", (double)force_meas.x, (double)force_meas.y, (double)force_meas.z, (double)error);
+	std::cout << buff << std::endl;
+
 	if(error < error_thresh){
-		save_positions(posx, posy, force);
+		log(posx, posy, force, force_meas, error);
 		simulate	= false;
 		query_force = true;
 	}
