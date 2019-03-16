@@ -182,7 +182,12 @@ void initPhysics(bool /*interactive*/)
 			firstLink = link;
 
 		link->attachShape(*capsuleShape);
-		PxRigidBodyExt::setMassAndUpdateInertia(*link, capsuleMass);
+		# For comparison with the catenary curve, the final mass must be halved
+		if(i==nbCapsules-1){
+			PxRigidBodyExt::setMassAndUpdateInertia(*link, 0.5f*capsuleMass);
+		}else{
+			PxRigidBodyExt::setMassAndUpdateInertia(*link, capsuleMass);
+		}
 
 		PxArticulationJointBase* joint = link->getInboundJoint();
 		if(joint)	// Will be null for root link
