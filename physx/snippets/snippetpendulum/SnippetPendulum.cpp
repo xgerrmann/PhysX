@@ -45,6 +45,8 @@
 
 using namespace physx;
 
+extern void exitCallback(void);
+
 PxDefaultAllocator		gAllocator;
 PxDefaultErrorCallback	gErrorCallback;
 
@@ -60,78 +62,54 @@ PxPvd*                  gPvd			= NULL;
 
 PxArticulation*			gArticulation	= NULL;
 
-PxArticulationLink*		lastLink		= NULL;
+const float gravity	= 9.81f;
+const float dt		= 1.0f/60.0f;
+const int n_steps	= 10000;
+const float distance= 1.0f;
+const float sphereMass = 0.1f;
+float inertia = 0.016f;
+int step_counter	= 0;
+float posx[n_steps];
+float posy[n_steps];
+float time_vec[n_steps];
 
-const int n_links						= 40;
-const float scale						= 0.25f;
-const float radius						= 0.5f*scale;
-const float halfHeight					= 1.0f*scale;
-const PxU32 nbCapsules					= (PxU32) n_links;
-const float capsuleMass					= 1.0f;
-
-const float gravity						= 9.81f;
-
-PxSphericalJoint* baseJoint				= NULL;
-
-float get_positions(float* posx, float* posy){
-	// Get positions
-	const PxU32 startIndex	= 0;
-	float error				= 0.0f;
-	PxArticulationLink* links[n_links];
-	gArticulation->getLinks(links, nbCapsules, startIndex);
-	for(PxU32 ii = 0; ii< n_links; ii++){
-		PxVec3 pos = links[ii]->getGlobalPose().p;
-		error += sqrt(pow(posx[ii]-pos.x,2) + pow(posy[ii]-pos.y,2));
-		posx[ii] = pos.x;
-		posy[ii] = pos.y;
-	}
-	return error;
+// Get position of last element
+void get_position(int ii, float* posx, float* posy){
+	PxArticulationLink* links[2];
+	gArticulation->getLinks(links, 2, 0);
+	PxVec3 pos = links[1]->getGlobalPose().p;
+	posx[ii] = pos.x;
+	posy[ii] = pos.y;
 }
 
-void log(float* posx, float* posy, float force, PxVec3 force_meas, float error){
+void log(){
 	// Save data
-	const static char* dir = "/home/xander/Google Drive/Thesis/src/catenary_analysis/data/";
+	const static char* dir = "/home/xander/Google Drive/Thesis/src/pendulum_analysis/data/";
 	char fname[40];
-	sprintf(fname,"%sforce_%d",dir,(int)force);
+	sprintf(fname,"%spendulum_data",dir);
 	std::cout << fname << std::endl;
 	std::ofstream file;
 	file.open(fname);
-	const static int length_head = 11;
+	const static int length_head = 6;
 	file << "Length_head: "	<<  length_head << std::endl;
-	file << "Number: "		<<  n_links << std::endl;
-	file << "Mass: "		<<  capsuleMass << std::endl;
-	file << "HalfHeight: "	<<  halfHeight << std::endl;
-	file << "Scale: "		<<  scale << std::endl;
-	file << "Force: "		<<  force << std::endl;
-	file << "Gravity: "		<<  gravity << std::endl;
-	file << "Fx_base: "		<<  force_meas.x << std::endl;
-	file << "Fy_base: "		<<  force_meas.y << std::endl;
-	file << "Fz_base: "		<<  force_meas.z << std::endl;
-	file << "Error: "		<<  error << std::endl;
-
+	file << "Mass: "		<<  sphereMass << std::endl;
+	file << "Inertia:"		<<	inertia << std::endl;
+	file << "Length: "		<<  distance << std::endl;
+	file << "dt: "			<<  dt << std::endl;
+	file << "gravity: "		<<  gravity << std::endl;
 	// CSV header
-	file << "x_coor" 		<< "," << "y_coor" << std::endl;
-	for(int ii = 0; ii<(int)n_links; ii++){
-		file << posx[ii] << "," << posy[ii] << std::endl;
+	file << "time," << "x_coor," << "y_coor" << std::endl;
+	for(int ii = 0; ii<step_counter-1; ii++){
+		std::cout << ii << std::endl;
+		file << time_vec[ii] << "," << posx[ii] << "," << posy[ii] << std::endl;
 	}
 	file.close();
 }
 
 
-void applyDrag(){
-	const PxU32 startIndex	= 0;
-	PxArticulationLink* links[n_links];
-	gArticulation->getLinks(links, n_links, startIndex);
-	static float CD = 2.0f;
-	for(PxU32 ii = 0; ii<nbCapsules; ii++){
-		PxVec3 vel = links[ii]->getLinearVelocity();
-		PxVec3 drag = vel*CD;
-		links[ii]->addForce(-drag);
-	}
-}
-
 void initPhysics(bool /*interactive*/)
 {
+	std::cout << "Press ESC to stop recording positions." << std::endl;
 	gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
 	gPvd = PxCreatePvd(*gFoundation);
 	PxPvdTransport* transport = PxDefaultPvdSocketTransportCreate(PVD_HOST, 5425, 10);
@@ -167,38 +145,43 @@ void initPhysics(bool /*interactive*/)
 	gArticulation->setMaxProjectionIterations(16);
 	gArticulation->setSeparationTolerance(0.001f);
 
+	const float radius = 0.2f;
+	PxU32 nbSpheres = 2;
 
-	const PxVec3 initPos(0.0f, 24.0f, 0.0f);
+	const PxVec3 initPos(0.0f, 0.0f, 0.0f);
 	PxVec3 pos = initPos;
-	PxShape* capsuleShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
+	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* firstLink = NULL;
 	PxArticulationLink* parent = NULL;
 
-	// Create rope
-	for(PxU32 i=0;i<nbCapsules;i++)
+	// Create one link with an end mass
+	for(PxU32 i=0;i<nbSpheres;i++)
 	{
 		PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(pos));
 		if(!firstLink)
 			firstLink = link;
 
-		link->attachShape(*capsuleShape);
-		// For comparison with the catenary curve, the final mass must be halved
-		if(i==nbCapsules-1){
-			PxRigidBodyExt::setMassAndUpdateInertia(*link, 0.5f*capsuleMass);
-		}else{
-			PxRigidBodyExt::setMassAndUpdateInertia(*link, capsuleMass);
-		}
+		link->attachShape(*sphereShape);
+		PxRigidBodyExt::setMassAndUpdateInertia(*link, sphereMass);
+		PxVec3 inertia_tensor = link->getMassSpaceInertiaTensor();
+		std::cout << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
+		inertia = inertia_tensor.x;
+		//inertia_tensor.x = inertia;
+		//inertia_tensor.y = inertia;
+		//inertia_tensor.z = inertia;
+		//link->setMassSpaceInertiaTensor(inertia_tensor);
+		//link->setMass(sphereMass);
+		//std::cout << "New inertia tensor:" << std::endl << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
 
 		PxArticulationJointBase* joint = link->getInboundJoint();
 		if(joint)	// Will be null for root link
 		{
-			joint->setParentPose(PxTransform(PxVec3(halfHeight, 0.0f, 0.0f)));
-			joint->setChildPose(PxTransform(PxVec3(-halfHeight, 0.0f, 0.0f)));
+			joint->setParentPose(PxTransform(PxVec3(distance/2, 0.0f, 0.0f)));
+			joint->setChildPose(PxTransform(PxVec3(-distance/2, 0.0f, 0.0f)));
 		}
-		pos.x += halfHeight * 2.0f;
+		pos.x += distance;
 		parent = link;
 	}
-	lastLink = parent;
 
 	gScene->addArticulation(*gArticulation);
 
@@ -207,63 +190,27 @@ void initPhysics(bool /*interactive*/)
 		PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
 		PxRigidStatic* anchor = PxCreateStatic(*gPhysics, PxTransform(initPos), *anchorShape);
 		gScene->addActor(*anchor);
-		baseJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
-		PX_UNUSED(baseJoint);
+		PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
+		PX_UNUSED(j);
 	}
 }
 
 void stepPhysics(bool /*interactive*/)
 {
-	static bool query_force	= true;
-	static bool simulate	= false;
-	static float force		= 0.0f;
-	
-	static float posx[n_links];
-	static float posy[n_links];
-	float error				= 1000.0f;
-	float error_thresh		= 1e-4f;
-
-	if(query_force){
-		//// Report
-		std::cout << "Give force [N] and press enter:\n" << std::endl;
-		std::cin >> force;
-		query_force	= false;
-		simulate	= true;
-	}
-
-	if(simulate){
-		gScene->simulate(1.0f/60.0f);
-		gScene->fetchResults(true);
-
-		// Apply drag to tether elements
-		applyDrag();
-
-		// Apply Horizontal force to tether
-		lastLink->addForce(PxVec3(force, 0.0f, 0.0f));
-	}
-
-	error = get_positions(posx, posy);
-
-	// Determine forces baseJoint
-	PxVec3 force_meas;
-	PxVec3 torque_meas;
-	baseJoint->getConstraint()->getForce(force_meas,torque_meas);
-
-	// Report forces and error
-	std::cout.precision(10);
-	char buff[100];
-	sprintf(buff,"Fx: %+012.4f, Fy: %+012.4f, Fz: %+012.4f, Error: %+08.6f", (double)force_meas.x, (double)force_meas.y, (double)force_meas.z, (double)error);
-	std::cout << buff << std::endl;
-
-	if(error < error_thresh){
-		log(posx, posy, force, force_meas, error);
-		simulate	= false;
-		query_force = true;
+	gScene->simulate(dt);
+	gScene->fetchResults(true);
+	if(step_counter<n_steps){
+		get_position(step_counter, posx, posy);
+		time_vec[step_counter] = step_counter*dt;
+		step_counter++;
 	}
 }
 
 void cleanupPhysics(bool /*interactive*/)
 {
+	// Save positions to file
+	log();
+
 	gArticulation->release();
 	gScene->release();
 	gDispatcher->release();
