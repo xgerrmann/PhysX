@@ -111,7 +111,7 @@ void exitCallback(void)
 }
 }
 
-const PxVec3 gCamEye(0.0f, 2.0f, 5.0f);
+const PxVec3 gCamEye(0.0f, 1.0f, 3.0f);
 const PxVec3 gCamDir(0.0f, -0.468482f, -0.872546f);
 
 void renderLoop()

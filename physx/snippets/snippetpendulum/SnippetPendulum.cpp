@@ -66,8 +66,8 @@ const float gravity	= 9.81f;
 const float dt		= 1.0f/60.0f;
 const int n_steps	= 10000;
 const float distance= 1.0f;
-const float sphereMass = 0.1f;
-float inertia = 0.016f;
+const float sphereMass = 1.0f;
+float inertia		= 2.0f;
 int step_counter	= 0;
 float posx[n_steps];
 float posy[n_steps];
@@ -75,9 +75,9 @@ float time_vec[n_steps];
 
 // Get position of last element
 void get_position(int ii, float* posx, float* posy){
-	PxArticulationLink* links[2];
-	gArticulation->getLinks(links, 2, 0);
-	PxVec3 pos = links[1]->getGlobalPose().p;
+	PxArticulationLink* links[1];
+	gArticulation->getLinks(links, 1, 0);
+	PxVec3 pos = links[0]->getGlobalPose().p;
 	posx[ii] = pos.x;
 	posy[ii] = pos.y;
 }
@@ -145,43 +145,37 @@ void initPhysics(bool /*interactive*/)
 	gArticulation->setMaxProjectionIterations(16);
 	gArticulation->setSeparationTolerance(0.001f);
 
-	const float radius = 0.2f;
-	PxU32 nbSpheres = 2;
+	const float radius = 0.1f;
 
 	const PxVec3 initPos(0.0f, 0.0f, 0.0f);
 	PxVec3 pos = initPos;
+	pos.y = distance;
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* firstLink = NULL;
 	PxArticulationLink* parent = NULL;
 
 	// Create one link with an end mass
-	for(PxU32 i=0;i<nbSpheres;i++)
-	{
-		PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(pos));
-		if(!firstLink)
-			firstLink = link;
+	std::cout << pos.x << std::endl;
+	PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(pos));
+	firstLink = link;
 
-		link->attachShape(*sphereShape);
-		PxRigidBodyExt::setMassAndUpdateInertia(*link, sphereMass);
-		PxVec3 inertia_tensor = link->getMassSpaceInertiaTensor();
-		std::cout << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
-		inertia = inertia_tensor.x;
-		//inertia_tensor.x = inertia;
-		//inertia_tensor.y = inertia;
-		//inertia_tensor.z = inertia;
-		//link->setMassSpaceInertiaTensor(inertia_tensor);
-		//link->setMass(sphereMass);
-		//std::cout << "New inertia tensor:" << std::endl << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
+	link->attachShape(*sphereShape);
+	PxRigidBodyExt::setMassAndUpdateInertia(*link, sphereMass);
+	PxVec3 inertia_tensor = link->getMassSpaceInertiaTensor();
+	std::cout << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
+	inertia = inertia_tensor.x;
+	//inertia_tensor.x = inertia;
+	//inertia_tensor.x = inertia;
+	//inertia_tensor.y = inertia;
+	//inertia_tensor.z = inertia;
+	//link->setMassSpaceInertiaTensor(inertia_tensor);
+	//link->setMass(sphereMass);
+	//std::cout << "New inertia tensor:" << std::endl << "X: " << inertia_tensor.x << "Y: " << inertia_tensor.y << "Z: " << inertia_tensor.z << std::endl;
 
-		PxArticulationJointBase* joint = link->getInboundJoint();
-		if(joint)	// Will be null for root link
-		{
-			joint->setParentPose(PxTransform(PxVec3(distance/2, 0.0f, 0.0f)));
-			joint->setChildPose(PxTransform(PxVec3(-distance/2, 0.0f, 0.0f)));
-		}
-		pos.x += distance;
-		parent = link;
-	}
+	// Reduce sleep threshold
+	PxReal sThresh = gArticulation->getSleepThreshold()/10;
+	gArticulation->setSleepThreshold(sThresh);
+	std::cout << sThresh << std::endl;
 
 	gScene->addArticulation(*gArticulation);
 
@@ -190,19 +184,29 @@ void initPhysics(bool /*interactive*/)
 		PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
 		PxRigidStatic* anchor = PxCreateStatic(*gPhysics, PxTransform(initPos), *anchorShape);
 		gScene->addActor(*anchor);
-		PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
+		PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 		PX_UNUSED(j);
 	}
+
+	PxReal compliance = 0.0f;
+	PxU32 driveIterations = 1;
+	PxArticulationDriveCache* dCache = gArticulation->createDriveCache(compliance, driveIterations);
+	gArticulation->applyImpulse(link, *dCache, PxVec3(0.1f, 0.0f, 0.0f), PxVec3(0.0f, 0.0f, 0.0f));
 }
 
 void stepPhysics(bool /*interactive*/)
 {
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
-	if(step_counter<n_steps){
+	if(gArticulation->isSleeping()){
+		std::cout << "Articulation is sleeping, stop simulation manually" << std::endl;
+	}
+	else if(step_counter<n_steps){
 		get_position(step_counter, posx, posy);
 		time_vec[step_counter] = step_counter*dt;
 		step_counter++;
+	} else {
+		std::cout << "Max time reached, stop simulation manually" << std::endl;
 	}
 }
 
