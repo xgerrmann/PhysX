@@ -111,11 +111,8 @@ void exitCallback(void)
 }
 }
 
-const PxVec3 gCamEyeChain(9.621917f, 24.677629f, 16.127209f);
-const PxVec3 gCamDirChain(-0.138525f, -0.468482f, -0.872546f);
-
-const PxVec3 gCamEyeLift(8.605188f, 4.050591f, 0.145860f);
-const PxVec3 gCamDirLift(-0.999581f, -0.026449f, 0.011790f);
+const PxVec3 gCamEyeLift(4.f, 0.f, 0.f);
+const PxVec3 gCamDirLift(-1.f, 0.f, 0.f);
 
 void renderLoop()
 {

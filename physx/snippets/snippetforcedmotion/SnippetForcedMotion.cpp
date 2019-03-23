@@ -58,30 +58,38 @@ PxMaterial*				gMaterial		= NULL;
 
 PxPvd*                  gPvd			= NULL;
 
-PxArticulationReducedCoordinate*		gArticulation = NULL;
-PxArticulationJointReducedCoordinate*	gDriveJoint = NULL;
+PxArticulationReducedCoordinate*		gArticulation	= NULL;
+PxArticulationJointReducedCoordinate*	gDriveJoint		= NULL;
+PxFixedJoint* baseJoint									= NULL;
 
 void createScissorLift()
 {
-	//(1) Create base...
-	PxArticulationLink* base = gArticulation->createLink(NULL, PxTransform(PxVec3(0.f, 0.25f, 0.f)));
-	PxRigidActorExt::createExclusiveShape(*base, PxBoxGeometry(0.2f, 0.1f, 1.5f), *gMaterial);
-	PxRigidBodyExt::updateMassAndInertia(*base, 3.f);
+	// Create base...
+	PxArticulationLink* base = gArticulation->createLink(NULL, PxTransform(PxVec3(0.f, 0.f, 0.f)));
 
-	//Now create the slider and fixed joints...
+	PxShape* shape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
+	// Attach base articulation to static world
+	{
+		PxRigidStatic* anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.f)), *shape);
+		gScene->addActor(*anchor);
+		baseJoint = PxFixedJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), base, PxTransform(PxVec3(0.0f)));
+		PX_UNUSED(baseJoint);
+	}
+
+	//Now create the slider
 	gArticulation->setSolverIterationCounts(32);
 
-	PxArticulationLink* rightRoot = gArticulation->createLink(base, PxTransform(PxVec3(0.f, 0.55f, 0.9f)));
-	PxRigidActorExt::createExclusiveShape(*rightRoot, PxSphereGeometry(0.1f), *gMaterial);
+	PxArticulationLink* rightRoot = gArticulation->createLink(base, PxTransform(PxVec3(0.f, 0.f, 0.f)));
+	rightRoot->attachShape(*shape);
 	PxRigidBodyExt::updateMassAndInertia(*rightRoot, 1.f);
 
-	//Set up the drive joint...	
+	//Set up the drive joint...
 	gDriveJoint = static_cast<PxArticulationJointReducedCoordinate*>(rightRoot->getInboundJoint());
 	gDriveJoint->setJointType(PxArticulationJointType::ePRISMATIC);
 	gDriveJoint->setMotion(PxArticulationAxis::eZ, PxArticulationMotion::eFREE);
-	gDriveJoint->setDrive(PxArticulationAxis::eZ, 100000.f, 0.f, PX_MAX_F32);
+	gDriveJoint->setDrive(PxArticulationAxis::eZ, 1.f, 0.f, PX_MAX_F32);
 
-	gDriveJoint->setParentPose(PxTransform(PxVec3(0.f, 0.2f, 0.f)));
+	gDriveJoint->setParentPose(PxTransform(PxVec3(0.f, -0.2f, 0.f)));
 	gDriveJoint->setChildPose(PxTransform(PxVec3(0.f, 0.f, 0.f)));
 
 	gScene->addArticulation(*gArticulation);
@@ -119,24 +127,21 @@ void initPhysics(bool /*interactive*/)
 
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.f);
 
-	PxRigidStatic* groundPlane = PxCreatePlane(*gPhysics, PxPlane(0,1,0,0), *gMaterial);
-	gScene->addActor(*groundPlane);
-
 	gArticulation = gPhysics->createArticulationReducedCoordinate();
 
 	createScissorLift();
 }
 
-	static bool gClosing = true;
+static bool gClosing = true;
 
 void stepPhysics(bool /*interactive*/)
 {
-	const PxReal dt = 5.0f / 60.f;
+	const PxReal dt = 1.0f / 60.f;
 	PxReal driveValue = gDriveJoint->getDriveTarget(PxArticulationAxis::eZ);
 
-	if (gClosing && driveValue < -1.2f)
+	if (gClosing && driveValue < -1.f)
 		gClosing = false;
-	else if (!gClosing && driveValue > 0.2f)
+	else if (!gClosing && driveValue > 1.f)
 		gClosing = true;
 
 	if (gClosing)
