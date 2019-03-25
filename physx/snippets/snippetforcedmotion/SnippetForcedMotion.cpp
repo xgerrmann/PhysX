@@ -132,26 +132,21 @@ void initPhysics(bool /*interactive*/)
 	createScissorLift();
 }
 
-static bool gClosing = true;
-
 void stepPhysics(bool /*interactive*/)
 {
 	const PxReal dt = 1.0f / 60.f;
+	static double t = 0;
+	static const double freq		= 2.0;								// [Hz]
+	static const double amplitude	= 4;								//[m]
+	double F						= amplitude*sin(freq*t+0.5*M_PI);	// [-]
 	PxReal driveValue = gDriveJoint->getDriveTarget(PxArticulationAxis::eZ);
 
-	if (gClosing && driveValue < -1.f)
-		gClosing = false;
-	else if (!gClosing && driveValue > 1.f)
-		gClosing = true;
-
-	if (gClosing)
-		driveValue -= dt*0.25f;
-	else
-		driveValue += dt*0.25f;
+	driveValue = F;
 	gDriveJoint->setDriveTarget(PxArticulationAxis::eZ, driveValue);
 
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
+	t += (double) dt;
 }
 	
 void cleanupPhysics(bool /*interactive*/)
