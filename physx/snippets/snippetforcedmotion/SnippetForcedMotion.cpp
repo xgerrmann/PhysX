@@ -31,6 +31,8 @@
 // This snippet demonstrates the use of articulations.
 // ****************************************************************************
 
+#include <iostream>
+
 #include <ctype.h>
 #include <vector>
 
@@ -39,9 +41,6 @@
 #include "../snippetutils/SnippetUtils.h"
 #include "../snippetcommon/SnippetPrint.h"
 #include "../snippetcommon/SnippetPVD.h"
-
-#define USE_REDUCED_COORDINATE_ARTICULATION 1
-#define CREATE_SCISSOR_LIFT 1
 
 using namespace physx;
 
@@ -61,8 +60,29 @@ PxPvd*                  gPvd			= NULL;
 PxArticulationReducedCoordinate*		gArticulation	= NULL;
 PxArticulationJointReducedCoordinate*	gDriveJoint		= NULL;
 PxFixedJoint* baseJoint									= NULL;
+PxArticulationLink*						lastLink		= NULL;
+PxArticulationLink*						anchor			= NULL;
 
-void createScissorLift()
+const float gravity										= 9.81f;
+const int								nbCapsules		= 30;
+const float 							radius			= 0.1f;
+const float 							distance		= 1.0f;
+const float 							mass			= 1.0f;
+
+void applyDrag(){
+	const PxU32 n_links		= nbCapsules;
+	const PxU32 startIndex	= 0;
+	PxArticulationLink* links[n_links];
+	gArticulation->getLinks(links, n_links, startIndex);
+	static float CD = 0.5f;
+	for(PxU32 ii = 0; ii<n_links; ii++){
+		PxVec3 vel = links[ii]->getLinearVelocity();
+		PxVec3 drag = vel*CD;
+		links[ii]->addForce(-drag);
+	}
+}
+
+void createAttachment()
 {
 	// Create base...
 	PxArticulationLink* base = gArticulation->createLink(NULL, PxTransform(PxVec3(0.f, 0.f, 0.f)));
@@ -79,21 +99,48 @@ void createScissorLift()
 	//Now create the slider
 	gArticulation->setSolverIterationCounts(32);
 
-	PxArticulationLink* rightRoot = gArticulation->createLink(base, PxTransform(PxVec3(0.f, 0.f, 0.f)));
-	rightRoot->attachShape(*shape);
-	PxRigidBodyExt::updateMassAndInertia(*rightRoot, 1.f);
+	anchor = gArticulation->createLink(base, PxTransform(PxVec3(0.f, 0.f, 0.f)));
+	anchor->attachShape(*shape);
+	PxRigidBodyExt::updateMassAndInertia(*anchor, 100.f);
 
 	//Set up the drive joint...
-	gDriveJoint = static_cast<PxArticulationJointReducedCoordinate*>(rightRoot->getInboundJoint());
+	gDriveJoint = static_cast<PxArticulationJointReducedCoordinate*>(anchor->getInboundJoint());
 	gDriveJoint->setJointType(PxArticulationJointType::ePRISMATIC);
-	gDriveJoint->setMotion(PxArticulationAxis::eZ, PxArticulationMotion::eFREE);
-	gDriveJoint->setDrive(PxArticulationAxis::eZ, 1.f, 0.f, PX_MAX_F32);
+	gDriveJoint->setMotion(PxArticulationAxis::eX, PxArticulationMotion::eFREE);
+	float stiffness	= 100.f;
+	float damping	= 4.f;
+	gDriveJoint->setDrive(PxArticulationAxis::eX, stiffness, damping, PX_MAX_F32);
 
 	gDriveJoint->setParentPose(PxTransform(PxVec3(0.f, -0.2f, 0.f)));
 	gDriveJoint->setChildPose(PxTransform(PxVec3(0.f, 0.f, 0.f)));
+}
 
-	gScene->addArticulation(*gArticulation);
+void createRope()
+{
+	lastLink = anchor;
+	PxShape* shape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
+	const PxVec3 initPos(0.0f, -0.2f, 0.0f);
+	PxVec3 pos = initPos;
+	// Create rope
+	for(PxU32 i=0;i<nbCapsules;i++)
+	{
+		//pos.y += (radius + distance) * 2.0f;
+		PxArticulationLink* link = gArticulation->createLink(lastLink, PxTransform(pos));
 
+		link->attachShape(*shape);
+		PxRigidBodyExt::setMassAndUpdateInertia(*link, mass);
+
+		PxArticulationJointReducedCoordinate* joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+		joint->setJointType(PxArticulationJointType::eSPHERICAL);
+		joint->setMotion(PxArticulationAxis::eTWIST, PxArticulationMotion::eFREE);
+		joint->setMotion(PxArticulationAxis::eSWING1, PxArticulationMotion::eFREE);
+		joint->setMotion(PxArticulationAxis::eSWING2, PxArticulationMotion::eFREE);
+		joint->setParentPose(PxTransform(PxVec3( 0.0f, 0.0f, 0.0f)));
+		joint->setChildPose(PxTransform(PxVec3(  distance, 0.0f, 0.0f)));
+		pos.x += (radius + distance) * 2.0f;
+
+		lastLink = link;
+	}
 }
 
 void initPhysics(bool /*interactive*/)
@@ -107,14 +154,14 @@ void initPhysics(bool /*interactive*/)
 	PxInitExtensions(*gPhysics, gPvd);
 
 	PxSceneDesc sceneDesc(gPhysics->getTolerancesScale());
-	sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
-	
+	sceneDesc.gravity = PxVec3(0.0f, -gravity, 0.0f);
+
 	PxU32 numCores = SnippetUtils::getNbPhysicalCores();
 	gDispatcher = PxDefaultCpuDispatcherCreate(numCores == 0 ? 0 : numCores - 1);
 	sceneDesc.cpuDispatcher	= gDispatcher;
 	sceneDesc.filterShader	= PxDefaultSimulationFilterShader;
 
-	sceneDesc.solverType = PxSolverType::eTGS;
+	//sceneDesc.solverType = PxSolverType::eTGS;
 
 	gScene = gPhysics->createScene(sceneDesc);
 	PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
@@ -129,24 +176,29 @@ void initPhysics(bool /*interactive*/)
 
 	gArticulation = gPhysics->createArticulationReducedCoordinate();
 
-	createScissorLift();
+	createAttachment();
+	createRope();
+	gScene->addArticulation(*gArticulation);
 }
 
 void stepPhysics(bool /*interactive*/)
 {
 	const PxReal dt = 1.0f / 60.f;
-	static double t = 0;
-	static const double freq		= 2.0;								// [Hz]
-	static const double amplitude	= 4;								//[m]
-	double F						= amplitude*sin(freq*t+0.5*M_PI);	// [-]
-	PxReal driveValue = gDriveJoint->getDriveTarget(PxArticulationAxis::eZ);
+	static float t = 0;
+	static const float freq			= 2.0f;								// [Hz]
+	static const float amplitude	= 1.0f ;								//[m]
+	float F							= amplitude*sin(freq*t);			// [-]
+	PxReal driveValue = gDriveJoint->getDriveTarget(PxArticulationAxis::eX);
 
 	driveValue = F;
-	gDriveJoint->setDriveTarget(PxArticulationAxis::eZ, driveValue);
+	gDriveJoint->setDriveTarget(PxArticulationAxis::eX, driveValue);
 
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
 	t += (double) dt;
+
+	// Apply drag to tether elements
+	applyDrag();
 }
 	
 void cleanupPhysics(bool /*interactive*/)
