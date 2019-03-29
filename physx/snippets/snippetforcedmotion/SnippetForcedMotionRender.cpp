@@ -25,7 +25,7 @@
 //
 // Copyright (c) 2008-2019 NVIDIA Corporation. All rights reserved.
 // Copyright (c) 2004-2008 AGEIA Technologies, Inc. All rights reserved.
-// Copyright (c) 2001-2004 NovodeX AG. All rights reserved.  
+// Copyright (c) 2001-2004 NovodeX AG. All rights reserved.
 
 #ifdef RENDER_SNIPPET
 
@@ -39,7 +39,7 @@
 using namespace physx;
 
 extern void initPhysics(bool interactive);
-extern void stepPhysics(bool interactive);	
+extern void stepPhysics(bool interactive);
 extern void cleanupPhysics(bool interactive);
 extern void keyPress(unsigned char key, const PxTransform& camera);
 
@@ -111,7 +111,7 @@ void exitCallback(void)
 }
 }
 
-const PxVec3 gCamEyeLift(0.f, 0.f, -6.f);
+const PxVec3 gCamEyeLift(0.f, -15.f, -35.f);
 const PxVec3 gCamDirLift(0.f, 0.f, 1.570196f);
 
 void renderLoop()
