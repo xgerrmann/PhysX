@@ -68,21 +68,47 @@ const float distance					= 1.0f;
 const float mass 						= 1.0f;
 const float radius						= 0.1f;
 
+bool bAddLinks = false;
+int stepNumber = 0;
+
 PxArticulationLink* firstLink			= NULL;
 PxRigidStatic* anchor					= NULL;
 //PxRigidDynamic* anchor					= NULL;
 
-void applyDrag(){
-	const PxU32 startIndex	= 0;
-	PxArticulationLink* links[nLinks];
-	gArticulation->getLinks(links, nLinks, startIndex);
-	static float CD = 0.2f;
-	for(int ii = 0; ii<nLinks; ii++){
-		PxVec3 vel = links[ii]->getLinearVelocity();
-		PxVec3 drag = vel*CD;
-		links[ii]->addForce(-drag);
+PxArticulationLink* GetTailLink()
+{
+	PxU32 NumLinks = gArticulation->getNbLinks();
+	if (NumLinks <= 0)
+	{
+		return nullptr;
+	}
+
+	PxArticulationLink* LinkBuf[1];
+	gArticulation->getLinks(LinkBuf, 1, NumLinks - 1);
+	PxArticulationLink* TailLink = LinkBuf[0];
+	return TailLink;
+}
+
+void RemoveLeafLink()
+{
+	PxArticulationLink* TailLink = GetTailLink();
+	if (TailLink != nullptr)
+	{
+		TailLink->release();
 	}
 }
+
+//void applyDrag(){
+//	const PxU32 startIndex	= 0;
+//	PxArticulationLink* links[nLinks];
+//	gArticulation->getLinks(links, nLinks, startIndex);
+//	static float CD = 0.2f;
+//	for(int ii = 0; ii<nLinks; ii++){
+//		PxVec3 vel = links[ii]->getLinearVelocity();
+//		PxVec3 drag = vel*CD;
+//		links[ii]->addForce(-drag);
+//	}
+//}
 
 void createAttachment(){
 	// Attach articulation to static world
@@ -93,6 +119,22 @@ void createAttachment(){
 	gScene->addActor(*anchor);
 	PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
 	PX_UNUSED(j);
+}
+
+PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos, PxShape* shape){
+	PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(*pos));
+
+	link->attachShape(*shape);
+	PxRigidBodyExt::setMassAndUpdateInertia(*link, mass);
+
+	PxArticulationJointBase* joint = link->getInboundJoint();
+	if(joint)	// Will be null for root link
+	{
+		joint->setParentPose(PxTransform(PxVec3(0.0f)));
+		joint->setChildPose(PxTransform(PxVec3(0.0f, distance, 0.0f)));
+	}
+	pos->y -= distance;
+	return link;
 }
 
 void createRope(){
@@ -110,27 +152,15 @@ void createRope(){
 
 	const PxVec3 initPos(0.0f);
 	PxVec3 pos = initPos;
-	PxShape* capsuleShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
+	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* parent = NULL;
 
 	// Create rope
 	for(PxU32 i=0;i<nLinks;i++)
 	{
-		PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(pos));
+		parent = addLink(parent, &pos, sphereShape);
 		if(!firstLink)
-			firstLink = link;
-
-		link->attachShape(*capsuleShape);
-		PxRigidBodyExt::setMassAndUpdateInertia(*link, mass);
-
-		PxArticulationJointBase* joint = link->getInboundJoint();
-		if(joint)	// Will be null for root link
-		{
-			joint->setParentPose(PxTransform(PxVec3(0.0f)));
-			joint->setChildPose(PxTransform(PxVec3(0.0f, distance, 0.0f)));
-		}
-		pos.y -= distance;
-		parent = link;
+			firstLink = parent;
 	}
 	lastLink = parent;
 }
@@ -170,19 +200,53 @@ void initPhysics(bool /*interactive*/)
 
 void stepPhysics(bool /*interactive*/)
 {
+	//static bool deleted = false;
 	static float tElapsed = 0;
 	gScene->simulate(1.0f/60.0f);
 	gScene->fetchResults(true);
 
 	float posX = sin(2.f*3.1415f*tElapsed);
-	std::cout << posX << std::endl;
 	bool autowake = true;
 	anchor->setGlobalPose(PxTransform(PxVec3(posX,0.0f,0.0f)),autowake);
 
 	// Apply drag to tether elements
-	applyDrag();
+	//applyDrag();
 
 	tElapsed += dt;
+
+	// Add +/ delete links
+	stepNumber++;
+	if (stepNumber % 10 == 0)
+	{
+		PxU32 NumLinks = gArticulation->getNbLinks();
+		if (!bAddLinks)
+		{
+			if (NumLinks > 1)
+			{
+				RemoveLeafLink();
+			}
+			else
+			{
+				bAddLinks = true;
+			}
+		}
+		else
+		{
+			if (NumLinks < 64)
+			{
+				PxArticulationLink* TailLink = GetTailLink();
+				PxTransform TailWS = TailLink->getGlobalPose();
+				PxVec3 NewPosWS = TailWS.p;
+				NewPosWS.y -= distance;
+				PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
+				addLink(TailLink, &NewPosWS, sphereShape);
+			}
+			else
+			{
+				bAddLinks = false;
+			}
+		}
+	}
 }
 
 void cleanupPhysics(bool /*interactive*/)

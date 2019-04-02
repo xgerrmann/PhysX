@@ -66,7 +66,7 @@ void applyDrag(){
 	const PxU32 startIndex	= 0;
 	PxArticulationLink* links[n_links];
 	gArticulation->getLinks(links, n_links, startIndex);
-	static float CD = 0.2f;
+	static float CD = 2.0f;
 	for(PxU32 ii = 0; ii<n_links; ii++){
 		PxVec3 vel = links[ii]->getLinearVelocity();
 		PxVec3 drag = vel*CD;
