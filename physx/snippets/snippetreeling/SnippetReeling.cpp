@@ -61,6 +61,7 @@ PxArticulation*			gArticulation	= NULL;
 
 PxArticulationLink*		lastLink		= NULL;
 
+const float dt							= 1.0f/60.0f;
 const int nLinks						= 10;
 const float gravity						= 9.81f;
 const float distance					= 1.0f;
@@ -68,6 +69,8 @@ const float mass 						= 1.0f;
 const float radius						= 0.1f;
 
 PxArticulationLink* firstLink			= NULL;
+PxRigidStatic* anchor					= NULL;
+//PxRigidDynamic* anchor					= NULL;
 
 void applyDrag(){
 	const PxU32 startIndex	= 0;
@@ -84,7 +87,9 @@ void applyDrag(){
 void createAttachment(){
 	// Attach articulation to static world
 	PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
-	PxRigidStatic* anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
+	anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
+	//PxReal density = 0.1;
+	//anchor = PxCreateDynamic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape, density);
 	gScene->addActor(*anchor);
 	PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
 	PX_UNUSED(j);
@@ -165,11 +170,19 @@ void initPhysics(bool /*interactive*/)
 
 void stepPhysics(bool /*interactive*/)
 {
+	static float tElapsed = 0;
 	gScene->simulate(1.0f/60.0f);
 	gScene->fetchResults(true);
 
+	float posX = sin(2.f*3.1415f*tElapsed);
+	std::cout << posX << std::endl;
+	bool autowake = true;
+	anchor->setGlobalPose(PxTransform(PxVec3(posX,0.0f,0.0f)),autowake);
+
 	// Apply drag to tether elements
 	applyDrag();
+
+	tElapsed += dt;
 }
 
 void cleanupPhysics(bool /*interactive*/)
