@@ -68,9 +68,11 @@ const float distance					= 1.0f;
 const float mass 						= 1.0f;
 const float radius						= 0.1f;
 
+float reelingVelocity					= 0.01f;
+
 int stepNumber = 0;
 
-enum reelingDirection {reelIn = 0, reelOut = 1};
+enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
 
 #define REELIN 0
 #if REELIN
@@ -210,12 +212,11 @@ void stepPhysics(bool /*interactive*/)
 {
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
-	float dY = 0.03f;
 	static float posY = 0;
 	if(currentReelingDirection == reelIn){
-		posY += dY;
+		posY += reelingVelocity;
 	} else {
-		posY -= dY;
+		posY -= reelingVelocity;
 	}
 	bool autowake = true;
 	anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
@@ -273,8 +274,18 @@ void cleanupPhysics(bool /*interactive*/)
 	printf("SnippetArticulation done.\n");
 }
 
-void keyPress(unsigned char /*key*/, const PxTransform& /*camera*/)
+void keyPress(unsigned char key, const PxTransform& /*camera*/)
 {
+	std::cout << key << std::endl;
+	if(key=='i'){
+		currentReelingDirection = reelIn;
+	} else if(key=='o') {
+		currentReelingDirection = reelOut;
+	} else if(key=='j') {
+		reelingVelocity = std::max(0.f,reelingVelocity-0.01f);
+	} else if(key=='k') {
+		reelingVelocity = std::min(1.f,reelingVelocity+0.01f);
+	}
 }
 
 int snippetMain(int, const char*const*)
