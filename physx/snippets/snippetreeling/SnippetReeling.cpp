@@ -62,18 +62,27 @@ PxArticulation*			gArticulation	= NULL;
 PxArticulationLink*		lastLink		= NULL;
 
 const float dt							= 1.0f/60.0f;
-const int nLinks						= 10;
+const int nLinks						= 20;
 const float gravity						= 9.81f;
 const float distance					= 1.0f;
 const float mass 						= 1.0f;
 const float radius						= 0.1f;
 
-bool bAddLinks = false;
 int stepNumber = 0;
+
+enum reelingDirection {reelIn = 0, reelOut = 1};
+
+#define REELIN 0
+#if REELIN
+enum reelingDirection currentReelingDirection = reelIn;
+#else
+enum reelingDirection currentReelingDirection = reelOut;
+#endif
 
 PxArticulationLink* firstLink			= NULL;
 PxRigidStatic* anchor					= NULL;
-//PxRigidDynamic* anchor					= NULL;
+
+PxSphericalJoint* anchorJoint			= NULL;
 
 PxArticulationLink* GetTailLink()
 {
@@ -95,6 +104,8 @@ void RemoveLeafLink()
 	if (TailLink != nullptr)
 	{
 		TailLink->release();
+		// Update lastLink
+		lastLink = GetTailLink();
 	}
 }
 
@@ -114,11 +125,8 @@ void createAttachment(){
 	// Attach articulation to static world
 	PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
 	anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
-	//PxReal density = 0.1;
-	//anchor = PxCreateDynamic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape, density);
 	gScene->addActor(*anchor);
-	PxSphericalJoint* j = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), firstLink, PxTransform(PxVec3(0.0f)));
-	PX_UNUSED(j);
+	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), lastLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 }
 
 PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos, PxShape* shape){
@@ -131,9 +139,10 @@ PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos, PxShape* sh
 	if(joint)	// Will be null for root link
 	{
 		joint->setParentPose(PxTransform(PxVec3(0.0f)));
-		joint->setChildPose(PxTransform(PxVec3(0.0f, distance, 0.0f)));
+		joint->setChildPose(PxTransform(PxVec3(0.0f, -distance, 0.0f)));
 	}
-	pos->y -= distance;
+	pos->y += distance;
+	lastLink = link;
 	return link;
 }
 
@@ -150,7 +159,7 @@ void createRope(){
 	gArticulation->setSeparationTolerance(0.001f);
 
 
-	const PxVec3 initPos(0.0f);
+	const PxVec3 initPos(0.0f,-nLinks*distance,0.0f);
 	PxVec3 pos = initPos;
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* parent = NULL;
@@ -162,7 +171,6 @@ void createRope(){
 		if(!firstLink)
 			firstLink = parent;
 	}
-	lastLink = parent;
 }
 
 void initPhysics(bool /*interactive*/)
@@ -200,52 +208,53 @@ void initPhysics(bool /*interactive*/)
 
 void stepPhysics(bool /*interactive*/)
 {
-	//static bool deleted = false;
-	static float tElapsed = 0;
-	gScene->simulate(1.0f/60.0f);
+	gScene->simulate(dt);
 	gScene->fetchResults(true);
-
-	float posX = sin(2.f*3.1415f*tElapsed);
+	float dY = 0.03f;
+	static float posY = 0;
+	if(currentReelingDirection == reelIn){
+		posY += dY;
+	} else {
+		posY -= dY;
+	}
 	bool autowake = true;
-	anchor->setGlobalPose(PxTransform(PxVec3(posX,0.0f,0.0f)),autowake);
+	anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
 
 	// Apply drag to tether elements
 	//applyDrag();
 
-	tElapsed += dt;
-
 	// Add +/ delete links
-	stepNumber++;
-	if (stepNumber % 10 == 0)
+	PxU32 NumLinks = gArticulation->getNbLinks();
+	if (currentReelingDirection == reelIn && posY >= 0 && NumLinks > 1)
 	{
-		PxU32 NumLinks = gArticulation->getNbLinks();
-		if (!bAddLinks)
-		{
-			if (NumLinks > 1)
-			{
-				RemoveLeafLink();
-			}
-			else
-			{
-				bAddLinks = true;
-			}
+		// Remove element closest to anchor
+		RemoveLeafLink();
+		// Update anchor location
+		PxTransform pose = lastLink->getGlobalPose();
+		posY = pose.p.y + distance;
+		anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
+		// Attach link to anchor
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), lastLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
+	} else if(currentReelingDirection == reelOut && posY < -1 && NumLinks < 64) {
+		PxTransform anchorPose = anchor->getGlobalPose();
+		anchorPose.p.y = anchorPose.p.y + distance;
+		posY = anchorPose.p.y;
+		// Detach anchor
+		if(anchorJoint != nullptr){
+			anchorJoint->release();
+			anchorJoint = NULL;
 		}
-		else
-		{
-			if (NumLinks < 64)
-			{
-				PxArticulationLink* TailLink = GetTailLink();
-				PxTransform TailWS = TailLink->getGlobalPose();
-				PxVec3 NewPosWS = TailWS.p;
-				NewPosWS.y -= distance;
-				PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
-				addLink(TailLink, &NewPosWS, sphereShape);
-			}
-			else
-			{
-				bAddLinks = false;
-			}
-		}
+		// Update anchor location
+		anchor->setGlobalPose(anchorPose,autowake);
+		// Create new link
+		PxArticulationLink* TailLink = GetTailLink();
+		PxTransform linkTF = TailLink->getGlobalPose();
+		PxVec3 linkPose = linkTF.p;
+		linkPose.y = posY+distance;
+		PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
+		addLink(TailLink, &linkPose, sphereShape);
+		// Attach link to anchor
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), lastLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 	}
 }
 
