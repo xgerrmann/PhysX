@@ -77,6 +77,8 @@ PxRigidStatic* anchor					= NULL;
 
 PxSphericalJoint* anchorJoint			= NULL;
 
+PxArticulationLink* boxLink				= NULL;
+
 class Tether {
 	public:
 		PxArticulationLink* getStartLink();
@@ -203,8 +205,7 @@ void createAttachment(){
 void attachBox(){
 // Attach large & heavy box at the end of the rope
 
-//	const float boxMass = 50.0f;
-	const float boxMass = 1.0f;
+	const float boxMass = 50.0f;
 	const float boxSize = 1.0f; // Half the width, height and depth
 
 	PxArticulationLink* tetherLink = tether->getEndLink();
@@ -215,7 +216,7 @@ void attachBox(){
 
 	PxShape* boxShape = gPhysics->createShape(PxBoxGeometry(boxSize,boxSize,boxSize), *gMaterial);
 
-	PxArticulationLink* boxLink = gArticulation->createLink(tetherLink, PxTransform(boxPos));
+	boxLink = gArticulation->createLink(tetherLink, PxTransform(boxPos));
 
 	boxLink->attachShape(*boxShape);
 	PxRigidBodyExt::setMassAndUpdateInertia(*boxLink, boxMass);
@@ -284,9 +285,6 @@ void stepPhysics(bool /*interactive*/)
 		gArticulation->wakeUp();
 	}
 	// Update tether (add/remove links)
-	//PxArticulationLink* endLink = tether->getEndLink();
-	//const char* name = endLink->getName();
-
 	// Add +/ delete links
 	int nbElements = tether->getNbElements();
 	if (currentReelingDirection == reelIn && posY >= 0 && nbElements > 1)
@@ -351,6 +349,12 @@ void keyPress(unsigned char key, const PxTransform& /*camera*/)
 		reelingVelocity = std::max(0.f,reelingVelocity-0.01f);
 	} else if(key=='k') {
 		reelingVelocity = std::min(1.f,reelingVelocity+0.01f);
+	} else if(key=='m') {
+		PxReal compliance = 0.5f;
+		PxU32 driveIterations = 64;
+		PxArticulationDriveCache* dCache = gArticulation->createDriveCache(compliance, driveIterations);
+		float magnitude = 1.0f;
+		gArticulation->applyImpulse(boxLink, *dCache, PxVec3(0.0f, 0.0f,magnitude), PxVec3(0.0f, 0.0f, 0.0f));
 	}
 }
 
