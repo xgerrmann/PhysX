@@ -71,37 +71,42 @@ float reelingVelocity					= 0.001f;
 
 enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
 
-#define REELIN 0
-#if REELIN
-enum reelingDirection currentReelingDirection = reelIn;
-#else
-enum reelingDirection currentReelingDirection = reelOut;
-#endif
-
-//PxArticulationLink* firstLink			= NULL;
-//PxArticulationLink*		lastLink		= NULL;
+enum reelingDirection currentReelingDirection = None;
 
 PxRigidStatic* anchor					= NULL;
 
 PxSphericalJoint* anchorJoint			= NULL;
-
 
 class Tether {
 	public:
 		PxArticulationLink* getStartLink();
 		PxArticulationLink* getEndLink();
 		void createRope();
-		PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos, PxShape* shape);
+		PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos);
+		void removeLink();
+		int getNbElements();
+		Tether();
 	private:
 		PxArticulationLink* endLink   = NULL;
 		PxArticulationLink* startLink = NULL;
 
+		void updateNbElements();
 
-		void findStartLink();
-} tether;
+		void updateStartLink();
 
+		int nElements = 0;
+};
 
-void Tether::findStartLink(){
+void Tether::updateNbElements(){
+	nElements = gArticulation->getNbLinks();
+}
+
+int Tether::getNbElements(){
+	updateNbElements();
+	return nElements;
+}
+
+void Tether::updateStartLink(){
 	PxU32 NumLinks = gArticulation->getNbLinks();
 	if (NumLinks <= 0){
 		startLink = nullptr;
@@ -113,7 +118,7 @@ void Tether::findStartLink(){
 }
 
 PxArticulationLink* Tether::getStartLink(){
-	findStartLink();
+	updateStartLink();
 	return startLink;
 }
 
@@ -122,16 +127,17 @@ PxArticulationLink* Tether::getEndLink(){
 }
 
 
-void RemoveLeafLink()
+void Tether::removeLink()
 {
-	PxArticulationLink* startLink = tether.getStartLink();
 	if (startLink != nullptr)
 	{
 		startLink->release();
 		// Update lastLink
-		startLink = tether.getStartLink();
+		updateStartLink();
 	}
 }
+
+Tether* tether;
 
 //void applyDrag(){
 //	const PxU32 startIndex	= 0;
@@ -150,13 +156,14 @@ void createAttachment(){
 	PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
 	anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
 	gScene->addActor(*anchor);
-	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether.getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
+	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
 }
 
-PxArticulationLink* Tether::addLink(PxArticulationLink* parent, PxVec3* pos, PxShape* shape){
+PxArticulationLink* Tether::addLink(PxArticulationLink* parent, PxVec3* pos){
 	PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(*pos));
 
-	link->attachShape(*shape);
+	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
+	link->attachShape(*sphereShape);
 	PxRigidBodyExt::setMassAndUpdateInertia(*link, mass);
 
 	PxArticulationJointBase* joint = link->getInboundJoint();
@@ -170,8 +177,7 @@ PxArticulationLink* Tether::addLink(PxArticulationLink* parent, PxVec3* pos, PxS
 	return link;
 }
 
-void Tether::createRope(){
-
+Tether::Tether(){
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 	gArticulation = gPhysics->createArticulation();
@@ -185,15 +191,22 @@ void Tether::createRope(){
 
 	const PxVec3 initPos(0.0f,-nLinks*distance,0.0f);
 	PxVec3 pos = initPos;
-	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	PxArticulationLink* parent = NULL;
 
 	// Create rope
+	char name[20];
 	for(PxU32 i=0;i<nLinks;i++)
 	{
-		parent = addLink(parent, &pos, sphereShape);
-		if(!endLink)
+		parent = addLink(parent, &pos);
+		if(i==0){
 			endLink = parent;
+			sprintf(name,"EndLink");
+			parent->setName(name);
+		} else {
+			sprintf(name,"Link_%03i",i);
+			parent->setName(name);
+			std::cout << parent->getName() << std::endl;
+		}
 	}
 }
 
@@ -204,7 +217,7 @@ void createBox(){
 	const float boxMass = 1.0f;
 	const float boxSize = 1.0f; // Half the width, height and depth
 
-	PxArticulationLink* tetherLink = tether.getEndLink();
+	PxArticulationLink* tetherLink = tether->getEndLink();
 	PxVec3 firstLinkPos = tetherLink->getGlobalPose().p;
 
 	PxVec3 boxPos	= firstLinkPos;
@@ -253,13 +266,10 @@ void initPhysics(bool /*interactive*/)
 		pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_SCENEQUERIES, true);
 	}
 
-	tether.createRope();
+	tether = new Tether();
 	createAttachment();
 	//createBox();
 
-	const char* name = "EndLink";
-	PxArticulationLink* endLink = tether.getEndLink();
-	endLink->setName(name);
 
 	gScene->addArticulation(*gArticulation);
 }
@@ -268,6 +278,7 @@ void stepPhysics(bool /*interactive*/)
 {
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
+	// Change anchor position
 	static float posY = 0;
 	if(currentReelingDirection == reelIn){
 		posY += reelingVelocity;
@@ -275,30 +286,28 @@ void stepPhysics(bool /*interactive*/)
 		posY -= reelingVelocity;
 	}
 
-	std::cout << posY << std::endl;
+	//std::cout << posY << std::endl;
 	bool autowake = true;
 	anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
 
-	PxArticulationLink* endLink = tether.getEndLink();
-	const char* name = endLink->getName();
-	std::cout << name << std::endl;
-	// Apply drag to tether elements
-	//applyDrag();
+	// Update tether (add/remove links)
+	//PxArticulationLink* endLink = tether->getEndLink();
+	//const char* name = endLink->getName();
 
 	// Add +/ delete links
-	PxU32 NumLinks = gArticulation->getNbLinks();
-	if (currentReelingDirection == reelIn && posY >= 0 && NumLinks > 1)
+	int nbElements = tether->getNbElements();
+	if (currentReelingDirection == reelIn && posY >= 0 && nbElements > 1)
 	{
 		// Remove element closest to anchor
-		RemoveLeafLink();
+		tether->removeLink();
 		// Update anchor location
-		PxArticulationLink* startLink = tether.getStartLink();
+		PxArticulationLink* startLink = tether->getStartLink();
 		PxTransform pose = startLink->getGlobalPose();
 		posY = pose.p.y + distance;
 		anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
 		// Attach link to anchor
 		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
-	} else if(currentReelingDirection == reelOut && posY < -1 && NumLinks < 64) {
+	} else if(currentReelingDirection == reelOut && posY < -1 && nbElements < 64) {
 		PxTransform anchorPose = anchor->getGlobalPose();
 		anchorPose.p.y = anchorPose.p.y + distance;
 		posY = anchorPose.p.y;
@@ -310,15 +319,17 @@ void stepPhysics(bool /*interactive*/)
 		// Update anchor location
 		anchor->setGlobalPose(anchorPose,autowake);
 		// Create new link
-		PxArticulationLink* TailLink = tether.getStartLink();
+		PxArticulationLink* TailLink = tether->getStartLink();
 		PxTransform linkTF = TailLink->getGlobalPose();
 		PxVec3 linkPose = linkTF.p;
-		linkPose.y = posY+distance;
-		PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
-		tether.addLink(TailLink, &linkPose, sphereShape);
+		linkPose.y = posY + distance;
+		tether->addLink(TailLink, &linkPose);
 		// Attach link to anchor
-		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether.getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
 	}
+
+	// Apply drag to tether elements
+	//applyDrag();
 }
 
 void cleanupPhysics(bool /*interactive*/)
