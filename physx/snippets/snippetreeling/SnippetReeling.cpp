@@ -82,7 +82,7 @@ class Tether {
 		PxArticulationLink* getStartLink();
 		PxArticulationLink* getEndLink();
 		void createRope();
-		PxArticulationLink* addLink(PxArticulationLink* parent, PxVec3* pos);
+		void addLink(PxVec3* pos);
 		void removeLink();
 		int getNbElements();
 		Tether();
@@ -90,35 +90,18 @@ class Tether {
 		PxArticulationLink* endLink   = NULL;
 		PxArticulationLink* startLink = NULL;
 
-		void updateNbElements();
+		int nbElements = 0;
 
-		void updateStartLink();
+		static const int maxNbElements = 64;
 
-		int nElements = 0;
+		PxArticulationLink* tetherElements[maxNbElements];
 };
 
-void Tether::updateNbElements(){
-	nElements = gArticulation->getNbLinks();
-}
-
 int Tether::getNbElements(){
-	updateNbElements();
-	return nElements;
-}
-
-void Tether::updateStartLink(){
-	PxU32 NumLinks = gArticulation->getNbLinks();
-	if (NumLinks <= 0){
-		startLink = nullptr;
-	}
-
-	PxArticulationLink* LinkBuf[1];
-	gArticulation->getLinks(LinkBuf, 1, NumLinks - 1);
-	startLink =  LinkBuf[0];
+	return nbElements;
 }
 
 PxArticulationLink* Tether::getStartLink(){
-	updateStartLink();
 	return startLink;
 }
 
@@ -126,14 +109,15 @@ PxArticulationLink* Tether::getEndLink(){
 	return endLink;
 }
 
-
 void Tether::removeLink()
 {
 	if (startLink != nullptr)
 	{
-		startLink->release();
-		// Update lastLink
-		updateStartLink();
+		// Release, then remove pointer to element.
+		tetherElements[nbElements-1]->release();
+		tetherElements[nbElements-1] = NULL;
+		nbElements -= 1;
+		startLink = tetherElements[nbElements-1];
 	}
 }
 
@@ -151,30 +135,41 @@ Tether* tether;
 //	}
 //}
 
-void createAttachment(){
-	// Attach articulation to anchor
-	PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
-	anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
-	gScene->addActor(*anchor);
-	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
-}
-
-PxArticulationLink* Tether::addLink(PxArticulationLink* parent, PxVec3* pos){
-	PxArticulationLink* link = gArticulation->createLink(parent, PxTransform(*pos));
+void Tether::addLink(PxVec3* pos){
+	// Number of elements may not exceed the set maximum
+	if(nbElements >= maxNbElements){
+		return;
+	}
+	PxArticulationLink* newLink = gArticulation->createLink(startLink, PxTransform(*pos));
 
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
-	link->attachShape(*sphereShape);
-	PxRigidBodyExt::setMassAndUpdateInertia(*link, mass);
+	newLink->attachShape(*sphereShape);
+	PxRigidBodyExt::setMassAndUpdateInertia(*newLink, mass);
 
-	PxArticulationJointBase* joint = link->getInboundJoint();
+	PxArticulationJointBase* joint = newLink->getInboundJoint();
 	if(joint)	// Will be null for root link
 	{
 		joint->setParentPose(PxTransform(PxVec3(0.0f)));
 		joint->setChildPose(PxTransform(PxVec3(0.0f, -distance, 0.0f)));
 	}
 	pos->y += distance;
-	startLink = link;
-	return link;
+
+	// Update pointers and counter
+	startLink = newLink;
+	tetherElements[nbElements] = newLink;
+	nbElements += 1;
+
+	// Give name to tether elements
+	char name[20];
+	if(nbElements == 1){
+		endLink = newLink;
+		sprintf(name,"EndLink");
+		newLink->setName(name);
+	} else {
+		sprintf(name,"Link_%03i",nbElements-1);
+		newLink->setName(name);
+	}
+	std::cout << "Created link: " << newLink->getName() << std::endl;
 }
 
 Tether::Tether(){
@@ -188,29 +183,24 @@ Tether::Tether(){
 	gArticulation->setMaxProjectionIterations(16);
 	gArticulation->setSeparationTolerance(0.001f);
 
-
-	const PxVec3 initPos(0.0f,-nLinks*distance,0.0f);
-	PxVec3 pos = initPos;
-	PxArticulationLink* parent = NULL;
+	PxVec3 pos(0.0f,-nLinks*distance,0.0f);
 
 	// Create rope
-	char name[20];
 	for(PxU32 i=0;i<nLinks;i++)
 	{
-		parent = addLink(parent, &pos);
-		if(i==0){
-			endLink = parent;
-			sprintf(name,"EndLink");
-			parent->setName(name);
-		} else {
-			sprintf(name,"Link_%03i",i);
-			parent->setName(name);
-			std::cout << parent->getName() << std::endl;
-		}
+		addLink(&pos);
 	}
 }
 
-void createBox(){
+void createAttachment(){
+	// Attach articulation to anchor
+	PxShape* anchorShape = gPhysics->createShape(PxSphereGeometry(0.05f), *gMaterial);
+	anchor = PxCreateStatic(*gPhysics, PxTransform(PxVec3(0.0f)), *anchorShape);
+	gScene->addActor(*anchor);
+	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
+}
+
+void attachBox(){
 // Attach large & heavy box at the end of the rope
 
 //	const float boxMass = 50.0f;
@@ -268,7 +258,7 @@ void initPhysics(bool /*interactive*/)
 
 	tether = new Tether();
 	createAttachment();
-	//createBox();
+	attachBox();
 
 
 	gScene->addArticulation(*gArticulation);
@@ -282,14 +272,17 @@ void stepPhysics(bool /*interactive*/)
 	static float posY = 0;
 	if(currentReelingDirection == reelIn){
 		posY += reelingVelocity;
-	} else {
+	} else if(currentReelingDirection == reelOut) {
 		posY -= reelingVelocity;
 	}
 
 	//std::cout << posY << std::endl;
 	bool autowake = true;
 	anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
-
+	bool isSleeping = gArticulation->isSleeping();
+	if(isSleeping){
+		gArticulation->wakeUp();
+	}
 	// Update tether (add/remove links)
 	//PxArticulationLink* endLink = tether->getEndLink();
 	//const char* name = endLink->getName();
@@ -323,7 +316,7 @@ void stepPhysics(bool /*interactive*/)
 		PxTransform linkTF = TailLink->getGlobalPose();
 		PxVec3 linkPose = linkTF.p;
 		linkPose.y = posY + distance;
-		tether->addLink(TailLink, &linkPose);
+		tether->addLink(&linkPose);
 		// Attach link to anchor
 		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
 	}
