@@ -59,15 +59,15 @@ PxPvd*                  gPvd			= NULL;
 
 PxArticulation*			gArticulation	= NULL;
 
-
-const float dt							= 1.0f/60.0f;
+const float slowDown					= 1.0f;
+const float dt							= 1.0f/60.0f/slowDown;
 const int nLinks						= 20;
 const float gravity						= 9.81f;
 const float distance					= 1.0f;
 const float mass 						= 1.0f;
 const float radius						= 0.1f;
 
-float reelingVelocity					= 0.001f;
+float reelingVelocity					= 0.001f/slowDown;
 
 enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
 
@@ -84,7 +84,7 @@ class Tether {
 		PxArticulationLink* getStartLink();
 		PxArticulationLink* getEndLink();
 		void createRope();
-		void addLink(PxVec3* pos);
+		void addLink(PxVec3 pos);
 		void removeLink();
 		int getNbElements();
 		Tether();
@@ -137,12 +137,12 @@ Tether* tether;
 //	}
 //}
 
-void Tether::addLink(PxVec3* pos){
+void Tether::addLink(PxVec3 pos){
 	// Number of elements may not exceed the set maximum
 	if(nbElements >= maxNbElements){
 		return;
 	}
-	PxArticulationLink* newLink = gArticulation->createLink(startLink, PxTransform(*pos));
+	PxArticulationLink* newLink = gArticulation->createLink(startLink, PxTransform(pos));
 
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	newLink->attachShape(*sphereShape);
@@ -154,7 +154,6 @@ void Tether::addLink(PxVec3* pos){
 		joint->setParentPose(PxTransform(PxVec3(0.0f)));
 		joint->setChildPose(PxTransform(PxVec3(0.0f, -distance, 0.0f)));
 	}
-	pos->y += distance;
 
 	// Update pointers and counter
 	startLink = newLink;
@@ -190,7 +189,8 @@ Tether::Tether(){
 	// Create rope
 	for(PxU32 i=0;i<nLinks;i++)
 	{
-		addLink(&pos);
+		addLink(pos);
+		pos.y += distance;
 	}
 }
 
@@ -290,15 +290,6 @@ void stepPhysics(bool /*interactive*/)
 		gArticulation->wakeUp();
 	}
 
-	// Print poses
-	//PxTransform pose0 = anchorJoint->getLocalPose(PxJointActorIndex::eACTOR0);
-	//PxTransform pose1 = anchorJoint->getLocalPose(PxJointActorIndex::eACTOR1);
-	//std::cout << "Pose actor 0: (x,y,z) (p,q,r): (" << pose0.p.x << ", " << pose0.p.y << ", " << pose0.p.z << "), (" << pose0.q.x << ", "  << pose0.q.y << ", "  << pose0.q.z << ")" <<std::endl;
-	//std::cout << "Pose actor 1: (x,y,z) (p,q,r): (" << pose1.p.x << ", " << pose1.p.y << ", " << pose1.p.z << "), (" << pose1.q.x << ", "  << pose1.q.y << ", "  << pose1.q.z << ")" <<std::endl;
-
-
-	std::cout << "Elongation: " << elongation << std::endl;
-
 	// Update tether (add/remove links)
 	// Add +/ delete links
 	int nbElements = tether->getNbElements();
@@ -315,10 +306,12 @@ void stepPhysics(bool /*interactive*/)
 		PxArticulationLink* oldLink = tether->getStartLink();
 		PxVec3 oldLinkPosition = oldLink->getGlobalPose().p;
 		PxVec3 newLinkPosition = oldLinkPosition;
-		newLinkPosition.y += distance;
+		PxVec3 newLinkUnitVector = newLinkPosition;
+		newLinkUnitVector.normalize();
+		newLinkPosition -= newLinkUnitVector*distance;
 
 		// Remove element closest to anchor
-		tether->addLink(&newLinkPosition);
+		tether->addLink(newLinkPosition);
 		PxArticulationLink* startLink = tether->getStartLink();
 		// Attach link to anchor
 		anchorJoint->release();
