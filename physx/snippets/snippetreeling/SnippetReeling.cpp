@@ -269,54 +269,62 @@ void stepPhysics(bool /*interactive*/)
 {
 	gScene->simulate(dt);
 	gScene->fetchResults(true);
+	
 	// Change anchor position
-	static float posY = 0;
+	static float elongation = distance;
 	if(currentReelingDirection == reelIn){
-		posY += reelingVelocity;
+		elongation -= reelingVelocity;
 	} else if(currentReelingDirection == reelOut) {
-		posY -= reelingVelocity;
+		elongation += reelingVelocity;
+	}
+	
+	if(anchorJoint != nullptr){
+		anchorJoint->release();
+		anchorJoint = NULL;
+		PxArticulationLink* startLink = tether->getStartLink();
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,elongation,0.0f)));
 	}
 
-	//std::cout << posY << std::endl;
-	bool autowake = true;
-	anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
 	bool isSleeping = gArticulation->isSleeping();
 	if(isSleeping){
 		gArticulation->wakeUp();
 	}
+
+	// Print poses
+	//PxTransform pose0 = anchorJoint->getLocalPose(PxJointActorIndex::eACTOR0);
+	//PxTransform pose1 = anchorJoint->getLocalPose(PxJointActorIndex::eACTOR1);
+	//std::cout << "Pose actor 0: (x,y,z) (p,q,r): (" << pose0.p.x << ", " << pose0.p.y << ", " << pose0.p.z << "), (" << pose0.q.x << ", "  << pose0.q.y << ", "  << pose0.q.z << ")" <<std::endl;
+	//std::cout << "Pose actor 1: (x,y,z) (p,q,r): (" << pose1.p.x << ", " << pose1.p.y << ", " << pose1.p.z << "), (" << pose1.q.x << ", "  << pose1.q.y << ", "  << pose1.q.z << ")" <<std::endl;
+
+
+	std::cout << "Elongation: " << elongation << std::endl;
+
 	// Update tether (add/remove links)
 	// Add +/ delete links
 	int nbElements = tether->getNbElements();
-	if (currentReelingDirection == reelIn && posY >= 0 && nbElements > 1)
+	if (currentReelingDirection == reelIn && elongation < distance/2 && nbElements > 1)
 	{
 		// Remove element closest to anchor
 		tether->removeLink();
-		// Update anchor location
 		PxArticulationLink* startLink = tether->getStartLink();
-		PxTransform pose = startLink->getGlobalPose();
-		posY = pose.p.y + distance;
-		anchor->setGlobalPose(PxTransform(PxVec3(0.0f,posY,0.0f)),autowake);
 		// Attach link to anchor
-		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
-	} else if(currentReelingDirection == reelOut && posY < -1 && nbElements < 64) {
-		PxTransform anchorPose = anchor->getGlobalPose();
-		anchorPose.p.y = anchorPose.p.y + distance;
-		posY = anchorPose.p.y;
-		// Detach anchor
-		if(anchorJoint != nullptr){
-			anchorJoint->release();
-			anchorJoint = NULL;
-		}
-		// Update anchor location
-		anchor->setGlobalPose(anchorPose,autowake);
-		// Create new link
-		PxArticulationLink* TailLink = tether->getStartLink();
-		PxTransform linkTF = TailLink->getGlobalPose();
-		PxVec3 linkPose = linkTF.p;
-		linkPose.y = posY + distance;
-		tether->addLink(&linkPose);
+		elongation += distance;
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,elongation,0.0f)));
+	} else if(currentReelingDirection == reelOut && elongation > distance*1.5f && nbElements < 64) {
+
+		PxArticulationLink* oldLink = tether->getStartLink();
+		PxVec3 oldLinkPosition = oldLink->getGlobalPose().p;
+		PxVec3 newLinkPosition = oldLinkPosition;
+		newLinkPosition.y += distance;
+
+		// Remove element closest to anchor
+		tether->addLink(&newLinkPosition);
+		PxArticulationLink* startLink = tether->getStartLink();
 		// Attach link to anchor
-		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), tether->getStartLink(), PxTransform(PxVec3(0.0f,distance,0.0f)));
+		anchorJoint->release();
+		anchorJoint = NULL;
+		elongation -= distance;
+		anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,elongation,0.0f)));
 	}
 
 	// Apply drag to tether elements
@@ -353,7 +361,7 @@ void keyPress(unsigned char key, const PxTransform& /*camera*/)
 		PxReal compliance = 0.5f;
 		PxU32 driveIterations = 64;
 		PxArticulationDriveCache* dCache = gArticulation->createDriveCache(compliance, driveIterations);
-		float magnitude = 1.0f;
+		float magnitude = 10.0f;
 		gArticulation->applyImpulse(boxLink, *dCache, PxVec3(0.0f, 0.0f,magnitude), PxVec3(0.0f, 0.0f, 0.0f));
 	}
 }
