@@ -71,8 +71,8 @@ const float characteristicMass			= 0.013f;	// % [kg/m]
 const float mass 						= characteristicMass*distance;	// % [kg]
 const float radius						= 0.1f;
 
-float maxReelingVelocity				= 10;				// [m/s]
-float dReelingVelocity					= 1.0f/slowDown;	// [m/s]
+float maxReelingVelocity				= 100;				// [m/s]
+float dReelingVelocity					= 10.0f/slowDown*subStepCount;	// [m/s]
 float reelingVelocity					= 0.0f;				// [m/s]
 
 enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
@@ -94,7 +94,8 @@ class Tether {
 		void addLink(PxVec3 pos);
 		void removeLink();
 		int getNbElements();
-		Tether();
+		Tether(int nLinks);
+		void applyDrag();
 	private:
 		PxArticulationLink* endLink   = NULL;
 		PxArticulationLink* startLink = NULL;
@@ -132,17 +133,17 @@ void Tether::removeLink()
 
 Tether* tether;
 
-//void applyDrag(){
-//	const PxU32 startIndex	= 0;
-//	PxArticulationLink* links[nLinks];
-//	gArticulation->getLinks(links, nLinks, startIndex);
-//	static float CD = 0.2f;
-//	for(int ii = 0; ii<nLinks; ii++){
-//		PxVec3 vel = links[ii]->getLinearVelocity();
-//		PxVec3 drag = vel*CD;
-//		links[ii]->addForce(-drag);
-//	}
-//}
+void Tether::applyDrag(){
+	const PxU32 startIndex	= 0;
+	PxArticulationLink* links[maxNbElements];
+	gArticulation->getLinks(links, nbElements, startIndex);
+	static float CD = 0.2f;
+	for(int ii = 0; ii<nbElements; ii++){
+		PxVec3 vel = links[ii]->getLinearVelocity();
+		PxVec3 drag = vel*CD;
+		links[ii]->addForce(-drag);
+	}
+}
 
 void Tether::addLink(PxVec3 pos){
 	// Number of elements may not exceed the set maximum
@@ -180,7 +181,7 @@ void Tether::addLink(PxVec3 pos){
 	std::cout << "Created link: " << newLink->getName() << std::endl;
 }
 
-Tether::Tether(){
+Tether::Tether(int nLinks){
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 	gArticulation = gPhysics->createArticulation();
@@ -194,7 +195,7 @@ Tether::Tether(){
 	PxVec3 pos(0.0f,-nLinks*distance,0.0f);
 
 	// Create rope
-	for(PxU32 i=0;i<nLinks;i++)
+	for(int i=0;i<nLinks;i++)
 	{
 		addLink(pos);
 		pos.y += distance;
@@ -256,7 +257,7 @@ void initPhysics(bool /*interactive*/)
 		pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_SCENEQUERIES, true);
 	}
 
-	tether = new Tether();
+	tether = new Tether(nLinks);
 	createAttachment();
 	attachBox();
 
@@ -274,6 +275,8 @@ void stepPhysics(bool /*interactive*/)
 		t_elapsed_f += dt;
 		gScene->simulate(dt);
 		gScene->fetchResults(true);
+		// Apply drag to tether elements
+		tether->applyDrag();
 	}
 	// Change anchor position
 	static float elongation = distance;
@@ -335,8 +338,6 @@ void stepPhysics(bool /*interactive*/)
 		startLink->setLinearVelocity(-startLinkLinearVelocity);
 	}
 
-	// Apply drag to tether elements
-	//applyDrag();
 }
 
 void cleanupPhysics(bool /*interactive*/)
