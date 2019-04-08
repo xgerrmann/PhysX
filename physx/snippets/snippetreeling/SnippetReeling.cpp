@@ -38,6 +38,8 @@
 
 #include "PxPhysicsAPI.h"
 
+#include <chrono>
+
 #include "../snippetutils/SnippetUtils.h"
 #include "../snippetcommon/SnippetPrint.h"
 #include "../snippetcommon/SnippetPVD.h"
@@ -59,7 +61,8 @@ PxPvd*                  gPvd			= NULL;
 
 PxArticulation*			gArticulation	= NULL;
 
-const float slowDown					= 1.0f;
+PxU32 subStepCount						= 20;
+const float slowDown					= 1.0f*subStepCount;
 const float dt							= 1.0f/60.0f/slowDown;
 const int nLinks						= 20;
 const float gravity						= 9.81f;
@@ -69,7 +72,7 @@ const float mass 						= characteristicMass*distance;	// % [kg]
 const float radius						= 0.1f;
 
 float maxReelingVelocity				= 10;				// [m/s]
-float dReelingVelocity					= 0.1f/slowDown;	// [m/s]
+float dReelingVelocity					= 1.0f/slowDown;	// [m/s]
 float reelingVelocity					= 0.0f;				// [m/s]
 
 enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
@@ -209,7 +212,7 @@ void createAttachment(){
 void attachBox(){
 // Attach large & heavy box at the end of the rope
 
-	const float boxMass = 10.0f;
+	const float boxMass = 500.0f;
 	const float boxHalfSize = 1.0f; // Half the width, height and depth
 	const float boxDensity = boxMass/std::pow(2.f*boxHalfSize,3.f);
 
@@ -242,7 +245,7 @@ void initPhysics(bool /*interactive*/)
 	gDispatcher = PxDefaultCpuDispatcherCreate(numCores == 0 ? 0 : numCores - 1);
 	sceneDesc.cpuDispatcher	= gDispatcher;
 	sceneDesc.filterShader	= PxDefaultSimulationFilterShader;
-//	sceneDesc.solverType		= PxSolverType::eTGS;
+	sceneDesc.solverType		= PxSolverType::eTGS;
 
 	gScene = gPhysics->createScene(sceneDesc);
 	PxPvdSceneClient* pvdClient = gScene->getScenePvdClient();
@@ -263,9 +266,15 @@ void initPhysics(bool /*interactive*/)
 
 void stepPhysics(bool /*interactive*/)
 {
-	gScene->simulate(dt);
-	gScene->fetchResults(true);
-	
+	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+	static float t_elapsed_f = 0.0f;
+	std::chrono::duration<double> t_elapsed_ch =std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
+	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
+	for(PxU32 i=0; i < subStepCount; i++){
+		t_elapsed_f += dt;
+		gScene->simulate(dt);
+		gScene->fetchResults(true);
+	}
 	// Change anchor position
 	static float elongation = distance;
 
@@ -357,7 +366,7 @@ void keyPress(unsigned char key, const PxTransform& /*camera*/)
 	} else if(key=='k') {
 		reelingVelocity = std::min(maxReelingVelocity,reelingVelocity+dReelingVelocity);
 	} else if(key=='m') {
-		float magnitude = 1.0f;
+		float magnitude = 100.0f;
 		bool autowake = true;
 		box->addForce(PxVec3(magnitude, 0.0f,0.0f), PxForceMode::eIMPULSE,autowake);
 	}
