@@ -40,6 +40,8 @@
 
 #include <chrono>
 
+#include <fstream>
+
 #include "../snippetutils/SnippetUtils.h"
 #include "../snippetcommon/SnippetPrint.h"
 #include "../snippetcommon/SnippetPVD.h"
@@ -84,6 +86,10 @@ PxSphericalJoint* anchorJoint			= NULL;
 
 PxRigidDynamic* box						= NULL;
 PxFixedJoint* boxJoint					= NULL;
+
+const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/force";
+std::fstream file;
+
 
 class Tether {
 	public:
@@ -237,6 +243,34 @@ void attachBox(){
 	boxJoint = PxFixedJointCreate(*gPhysics, box, PxTransform(PxVec3(0.0f,2*elementLength,0.0f)), tetherLink, PxTransform(PxVec3(0.0f)));
 }
 
+void initFile(){
+	// Save data
+	std::cout << fpath << std::endl;
+	std::ofstream file;
+	file.open(fpath, std::ios_base::out);
+	const static int length_head = 4;
+	file << "Length_head: "			<<  length_head << std::endl;
+	file << "Timestep: "			<<  dt << std::endl;
+	file << "CharacteristicMass: "	<<  characteristicMass << std::endl;
+	file << "ElementLength: "		<<  elementLength << std::endl;
+
+	// CSV header
+	file << "time," << "nElements,"<< "force_x," << "force_y," << "force_z" << std::endl;
+	file.close();
+}
+
+void logForce(float t){
+	PxVec3 force, moment;
+	PxConstraint* anchorConstraint = anchorJoint->getConstraint();
+	anchorConstraint->getForce(force, moment);
+	int nbElements = tether->getNbElements();
+
+	file.open(fpath, std::ios_base::app);
+	// Save data
+	file << t << "," << nbElements << "," << force.x << "," << force.y << "," << force.z << std::endl;
+	file.close();
+}
+
 void initPhysics(bool /*interactive*/)
 {
 	gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
@@ -265,6 +299,7 @@ void initPhysics(bool /*interactive*/)
 		pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_SCENEQUERIES, true);
 	}
 
+	initFile();
 	tether = new Tether(nLinks);
 	createAttachment();
 	//attachBox();
@@ -276,11 +311,11 @@ void initPhysics(bool /*interactive*/)
 void stepPhysics(bool /*interactive*/)
 {
 //	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
-//	static float t_elapsed_f = 0.0f;
+	static float t_elapsed_f = 0.0f;
 //	std::chrono::duration<double> t_elapsed_ch =std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
 //	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
 	for(PxU32 i=0; i < subStepCount; i++){
-		//t_elapsed_f += dt;
+		t_elapsed_f += dt;
 		gScene->simulate(dt);
 		gScene->fetchResults(true);
 		// Apply drag to tether elements
@@ -292,13 +327,11 @@ void stepPhysics(bool /*interactive*/)
 		// Get constraint force
 		//PxArticulationLink* sLink = tether->getStartLink();
 		//PxArticulationJoint* sJoint = static_cast<PxArticulationJoint*>(sLink->getInboundJoint());
-		PxConstraint* anchorConstraint = anchorJoint->getConstraint();
+		//PxConstraint* anchorConstraint = anchorJoint->getConstraint();
 		//PxConstraint* sConstraint = sJoint->getConstraint();
 		//sConstraint->getForce(force, moment);
 		if(i==0){
-			PxVec3 force, moment;
-			anchorConstraint->getForce(force, moment);
-			printf("CForce, x: %+05.3f, y: %+05.3f, z: %+05.3f\n", (double)force.x, (double)force.y, (double)force.z);
+			logForce(t_elapsed_f);
 		}
 
 
