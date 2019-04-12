@@ -380,29 +380,32 @@ void stepPhysics(bool /*interactive*/)
 			distance += elementLength;
 			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 		} else if(currentReelingDirection == reelOut && distance > elementLength*2 && nbElements < 64) {
+		// Reelout + add element
+			distance -= elementLength;
 
-			PxArticulationLink* oldLink = tether->getStartLink();
-			PxVec3 oldLinkPosition = oldLink->getGlobalPose().p;
-			PxVec3 oldLinkLinearVelocity = oldLink->getLinearVelocity();
-			PxVec3 oldLinkAngularVelocity = oldLink->getAngularVelocity();
-			PxVec3 newLinkPosition = oldLinkPosition;
-			PxVec3 newLinkUnitVector = newLinkPosition;
-			newLinkUnitVector.normalize();
-			newLinkPosition -= newLinkUnitVector*elementLength;
+			PxArticulationLink* oldLink		= tether->getStartLink();
+			PxVec3 oldLinkPos				= oldLink->getGlobalPose().p;
+			float oldLinkDist				= oldLinkPos.magnitude();
+			PxVec3 unitDirectionVec			= oldLinkPos.getNormalized();
+			PxVec3 oldLinkLinearVel			= oldLink->getLinearVelocity();
+			PxVec3 oldLinkAngularVel		= oldLink->getAngularVelocity();
+			PxVec3 oldLinkRadialVel			= oldLinkLinearVel.dot(unitDirectionVec)*unitDirectionVec;
+			PxVec3 oldLinkTangentialVel		= oldLinkLinearVel - oldLinkRadialVel;
+
+			PxVec3 newLinkPos			= oldLinkPos - unitDirectionVec*elementLength;
+			PxVec3 newLinkLinearVel			= oldLinkRadialVel + (distance/oldLinkDist)*oldLinkTangentialVel;
+			PxVec3 newLinkAngularVel		= oldLinkAngularVel;
 
 			// Remove element closest to anchor
-			tether->addLink(newLinkPosition);
+			tether->addLink(newLinkPos);
 			PxArticulationLink* startLink = tether->getStartLink();
 			// Attach link to anchor
 			anchorJoint->release();
 			anchorJoint = NULL;
-			distance -= elementLength;
 			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
-			// Set angular velocity
-			startLink->setAngularVelocity(oldLinkAngularVelocity);
-			// Set linear velocity
-			PxVec3 startLinkLinearVelocity = oldLinkLinearVelocity*distance/oldLinkPosition.magnitude();
-			startLink->setLinearVelocity(-startLinkLinearVelocity);
+			// Set linear and angular velocity
+			startLink->setLinearVelocity(newLinkLinearVel);
+			startLink->setAngularVelocity(newLinkAngularVel);
 		}
 	}
 }
