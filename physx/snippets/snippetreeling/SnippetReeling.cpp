@@ -87,7 +87,7 @@ PxSphericalJoint* anchorJoint			= NULL;
 PxRigidDynamic* box						= NULL;
 PxFixedJoint* boxJoint					= NULL;
 
-const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/force";
+const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/data";
 std::fstream file;
 
 
@@ -156,7 +156,7 @@ void Tether::addLink(PxVec3 pos){
 		return;
 	}
 	// Update mass of current start element
-	// Since it is now an intermediate link, its mass is equal to the mass of one complete tether element
+	// Since it is now an intermediate link, its mass must equal the mass of one complete tether element
 	if(startLink != nullptr){
 		float startLinkMass = elementLength*characteristicMass;
 		PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startLinkMass);
@@ -166,6 +166,7 @@ void Tether::addLink(PxVec3 pos){
 
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	newLink->attachShape(*sphereShape);
+
 	// Each link is initialized with half the mass of a tether element.
 	float newLinkMass = 0.5f*characteristicMass*elementLength;	// % [kg]
 	PxRigidBodyExt::setMassAndUpdateInertia(*newLink, newLinkMass);
@@ -255,7 +256,7 @@ void initFile(){
 	file << "ElementLength: "		<<  elementLength << std::endl;
 
 	// CSV header
-	file << "time," << "nElements,"<< "force_x," << "force_y," << "force_z" << std::endl;
+	file << "time," << "nElements,"<< "force_x," << "force_y," << "force_z," << "link_pos," << "link_vel_x," << "link_vel_y," << "link_vel_z" << std::endl;
 	file.close();
 }
 
@@ -265,9 +266,14 @@ void logForce(float t){
 	anchorConstraint->getForce(force, moment);
 	int nbElements = tether->getNbElements();
 
+	PxArticulationLink* link = tether->getEndLink();
+	PxVec3 linkPosition, linkVelocity;
+	linkPosition = link->getGlobalPose().p;
+	linkVelocity = link->getLinearVelocity();
+
 	file.open(fpath, std::ios_base::app);
 	// Save data
-	file << t << "," << nbElements << "," << force.x << "," << force.y << "," << force.z << std::endl;
+	file << t << "," << nbElements << "," << force.x << "," << force.y << "," << force.z << ","<< linkPosition.y << "," << linkVelocity.x << "," << linkVelocity.y << "," << linkVelocity.z << std::endl;
 	file.close();
 }
 
@@ -354,7 +360,7 @@ void stepPhysics(bool /*interactive*/)
 			PxArticulationLink* startLink = tether->getStartLink();
 			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 			// Update mass of start link
-			float startElementMass = 0.5f*(abs(distance)+elementLength)*characteristicMass;
+			float startElementMass = (abs(distance)+0.5f*elementLength)*characteristicMass;
 			PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startElementMass);
 		}
 
