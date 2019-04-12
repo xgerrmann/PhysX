@@ -61,14 +61,14 @@ PxMaterial*				gMaterial		= NULL;
 
 PxPvd*                  gPvd			= NULL;
 
-PxArticulation*			gArticulation	= NULL;
+PxArticulationReducedCoordinate*	gArticulation = NULL;
 
-PxU32 subStepCount						= 20;
-const float slowDown					= 1.0f*subStepCount;
+PxU32 subStepCount						= 1.0f;
+const float slowDown					= 100.0f*subStepCount;
 const float dt							= 1.0f/60.0f/slowDown;
 const int nLinks						= 20;
 const float gravity						= 9.81f;
-const float elementLength					= 1.0f;
+const float elementLength				= 1.0f;
 const float characteristicMass			= 0.013f;	// % [kg/m]
 const float radius						= 0.1f;
 
@@ -87,7 +87,7 @@ PxSphericalJoint* anchorJoint			= NULL;
 PxRigidDynamic* box						= NULL;
 PxFixedJoint* boxJoint					= NULL;
 
-const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/force";
+const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/data";
 std::fstream file;
 
 
@@ -101,6 +101,7 @@ class Tether {
 		int getNbElements();
 		Tether(int nLinks);
 		void applyDrag();
+		PxArticulationLink* getLink(int linkIndex);
 	private:
 		PxArticulationLink* endLink   = NULL;
 		PxArticulationLink* startLink = NULL;
@@ -111,6 +112,13 @@ class Tether {
 
 		PxArticulationLink* tetherElements[maxNbElements];
 };
+
+PxArticulationLink* Tether::getLink(int linkIndex){
+	PxArticulationLink* links[1];
+	int nLinks = 1;
+	gArticulation->getLinks(links, nLinks, linkIndex);
+	return links[0];
+}
 
 int Tether::getNbElements(){
 	return nbElements;
@@ -156,7 +164,7 @@ void Tether::addLink(PxVec3 pos){
 		return;
 	}
 	// Update mass of current start element
-	// Since it is now an intermediate link, its mass is equal to the mass of one complete tether element
+	// Since it is now an intermediate link, its mass must equal the mass of one complete tether element
 	if(startLink != nullptr){
 		float startLinkMass = elementLength*characteristicMass;
 		PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startLinkMass);
@@ -166,15 +174,25 @@ void Tether::addLink(PxVec3 pos){
 
 	PxShape* sphereShape = gPhysics->createShape(PxSphereGeometry(radius), *gMaterial);
 	newLink->attachShape(*sphereShape);
+
 	// Each link is initialized with half the mass of a tether element.
 	float newLinkMass = 0.5f*characteristicMass*elementLength;	// % [kg]
 	PxRigidBodyExt::setMassAndUpdateInertia(*newLink, newLinkMass);
 
-	PxArticulationJointBase* joint = newLink->getInboundJoint();
+	PxArticulationJointReducedCoordinate* joint = static_cast<PxArticulationJointReducedCoordinate*>(newLink->getInboundJoint());
 	if(joint)	// Will be null for root link
 	{
-		joint->setParentPose(PxTransform(PxVec3(0.0f)));
-		joint->setChildPose(PxTransform(PxVec3(0.0f, -elementLength, 0.0f)));
+		// Joint must be located in child link. The child is the new link.
+		joint->setParentPose(PxTransform(PxVec3(0.0f, elementLength, 0.0f)));
+		joint->setChildPose(PxTransform(PxVec3(0.0f)));
+
+		// The joint type must be specified for reducedCoordinateArticulations
+		joint->setJointType(PxArticulationJointType::eSPHERICAL);
+
+		// Allowed motions must be specified
+		joint->setMotion(PxArticulationAxis::eSWING1 , PxArticulationMotion::eFREE);
+		joint->setMotion(PxArticulationAxis::eSWING2 , PxArticulationMotion::eFREE);
+		joint->setMotion(PxArticulationAxis::eTWIST , PxArticulationMotion::eFREE);
 	}
 
 	// Update pointers and counter
@@ -193,18 +211,23 @@ void Tether::addLink(PxVec3 pos){
 		newLink->setName(name);
 	}
 	std::cout << "Created link: " << newLink->getName() << std::endl;
+
+	// TODO: set joint type and see if velocity is still correct
 }
 
 Tether::Tether(int nLinks){
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
-	gArticulation = gPhysics->createArticulation();
+	//gArticulation = gPhysics->createArticulation();
+	// This is wrongly described in the documentation as:
+	// gArticulation = gPhysics->createReducedCoordinateArticulation();
+	gArticulation = gPhysics->createArticulationReducedCoordinate();
 
-	// Stabilization can create artefacts on jointed objects so we just disable it
-	gArticulation->setStabilizationThreshold(0.0f);
+	//// Stabilization can create artefacts on jointed objects so we just disable it
+	//gArticulation->setStabilizationThreshold(0.0f);
 
-	gArticulation->setMaxProjectionIterations(16);
-	gArticulation->setSeparationTolerance(0.001f);
+	//gArticulation->setMaxProjectionIterations(16);
+	//gArticulation->setSeparationTolerance(0.001f);
 
 	PxVec3 pos(0.0f,-nLinks*elementLength,0.0f);
 
@@ -214,6 +237,7 @@ Tether::Tether(int nLinks){
 		addLink(pos);
 		pos.y += elementLength;
 	}
+	std::cout << "nbElements: " << nbElements << std::endl;
 }
 
 void createAttachment(){
@@ -255,19 +279,35 @@ void initFile(){
 	file << "ElementLength: "		<<  elementLength << std::endl;
 
 	// CSV header
-	file << "time," << "nElements,"<< "force_x," << "force_y," << "force_z" << std::endl;
+	file << "time," << "nElements,"<< "force_x," << "force_y," << "force_z," << "link_pos," << "link_vel_x," << "link_vel_y," << "link_vel_z" << std::endl;
 	file.close();
 }
 
 void logForce(float t){
+	//PxArticulationLink* sLink = tether->getStartLink();
+	//PxArticulationJoint* sJoint = static_cast<PxArticulationJoint*>(sLink->getInboundJoint());
+	//PxConstraint* anchorConstraint = anchorJoint->getConstraint();
+	//PxConstraint* sConstraint = sJoint->getConstraint();
+	//sConstraint->getForce(force, moment);
 	PxVec3 force, moment;
 	PxConstraint* anchorConstraint = anchorJoint->getConstraint();
 	anchorConstraint->getForce(force, moment);
 	int nbElements = tether->getNbElements();
 
+	PxArticulationLink* link = tether->getEndLink();
+	//PxArticulationLink* link = tether->getStartLink();
+	PxVec3 linkPosition, linkVelocity;
+	if(link != nullptr){
+		linkPosition = link->getGlobalPose().p;
+		linkVelocity = link->getLinearVelocity();
+	} else {
+		linkPosition = PxVec3(0.0f);
+		linkVelocity = PxVec3(0.0f);
+	}
+
 	file.open(fpath, std::ios_base::app);
 	// Save data
-	file << t << "," << nbElements << "," << force.x << "," << force.y << "," << force.z << std::endl;
+	file << t << "," << nbElements << "," << force.x << "," << force.y << "," << force.z << ","<< linkPosition.y << "," << linkVelocity.x << "," << linkVelocity.y << "," << linkVelocity.z << std::endl;
 	file.close();
 }
 
@@ -311,10 +351,15 @@ void initPhysics(bool /*interactive*/)
 void stepPhysics(bool /*interactive*/)
 {
 //	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+	static bool added = false;
 	static float t_elapsed_f = 0.0f;
+	static float distance = elementLength;//tether->getStartLink()->getGlobalPose().p.normalize();
 //	std::chrono::duration<double> t_elapsed_ch =std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
 //	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
+	//while(added){}
 	for(PxU32 i=0; i < subStepCount; i++){
+		//float distance = tether->getStartLink()->getGlobalPose().p.normalize();
+		//logForce(t_elapsed_f);
 		t_elapsed_f += dt;
 		gScene->simulate(dt);
 		gScene->fetchResults(true);
@@ -324,79 +369,85 @@ void stepPhysics(bool /*interactive*/)
 		bool autowake = true;
 		PxArticulationLink* lastLink = tether->getEndLink();
 		lastLink->addForce(PxVec3(0.0f,-100.0f,0.0f), PxForceMode::eFORCE,autowake);
+
 		// Get constraint force
-		//PxArticulationLink* sLink = tether->getStartLink();
-		//PxArticulationJoint* sJoint = static_cast<PxArticulationJoint*>(sLink->getInboundJoint());
-		//PxConstraint* anchorConstraint = anchorJoint->getConstraint();
-		//PxConstraint* sConstraint = sJoint->getConstraint();
-		//sConstraint->getForce(force, moment);
-		if(i==0){
-			logForce(t_elapsed_f);
-		}
+		logForce(t_elapsed_f);
 
-
-		// Change anchor position
-		static float distance = elementLength;
-
+		// Determine reeling velocity and update distance
 		distance -= reelingVelocity*dt;
-
 		if(reelingVelocity ==0){
 			currentReelingDirection = None;
-		} else if(reelingVelocity >0 ){
+		} else if(reelingVelocity > 0 ){
 			currentReelingDirection = reelIn;
 		} else if(reelingVelocity < 0 ){
 			currentReelingDirection = reelOut;
 		}
 
-		if(reelingVelocity != 0 && anchorJoint != nullptr){
+		while(added){}
+		int nbElements = tether->getNbElements();
+		if (currentReelingDirection == reelIn && distance < elementLength/2.0f && nbElements > 1){
+		// Reelin + remove element
+			// Remove element closest to anchor
+			tether->removeLink();
+			PxArticulationLink* startLink = tether->getStartLink();
+			// Attach link to anchor
+			distance += elementLength;
+			//std::cout << "distance: " << distance << std::endl;
+			//std::cout << "pos:      " << startLink->getGlobalPose().p.normalize() << std::endl;
+			//std::cout << "veldist:  " << reelingVelocity*dt << std::endl;
+			//std::cout << "corrected:" << startLink->getGlobalPose().p.normalize() - reelingVelocity*dt<< std::endl;
+			//std::cout << "error:    " << distance - (startLink->getGlobalPose().p.normalize() - reelingVelocity*dt) << std::endl;
+			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
+		} else if(currentReelingDirection == reelOut && distance > elementLength*2 && nbElements < 64) {
+		// Reelout + add element
+			distance -= elementLength;
+
+			PxArticulationLink* oldLink		= tether->getStartLink();
+			PxVec3 oldLinkPos				= oldLink->getGlobalPose().p;
+			float oldLinkDist				= oldLinkPos.magnitude();
+			PxVec3 unitDirectionVec			= oldLinkPos.getNormalized();
+			PxVec3 oldLinkLinearVel			= oldLink->getLinearVelocity();
+			PxVec3 oldLinkAngularVel		= oldLink->getAngularVelocity();
+			PxVec3 oldLinkRadialVel			= oldLinkLinearVel.dot(unitDirectionVec)*unitDirectionVec;
+			PxVec3 oldLinkTangentialVel		= oldLinkLinearVel - oldLinkRadialVel;
+
+			PxVec3 newLinkPos			= oldLinkPos - unitDirectionVec*elementLength;
+			PxVec3 newLinkLinearVel			= oldLinkRadialVel + (distance/oldLinkDist)*oldLinkTangentialVel;
+			PxVec3 newLinkAngularVel		= oldLinkAngularVel;
+
+			printf("Distance: %5.4f\n",(double)distance);
+			printf("Old: px: %5.4f, py: %5.4f, pz: %5.4f\n",(double)oldLinkPos.x,(double)oldLinkPos.y,(double)oldLinkPos.z);
+			printf("Old: vx: %5.4f, vy: %5.4f, vz: %5.4f\n",(double)oldLinkLinearVel.x,(double)oldLinkLinearVel.y,(double)oldLinkLinearVel.z);
+			printf("Old: vr: %5.4f, vt: %5.4f\n",(double)oldLinkRadialVel.normalize(),(double)oldLinkTangentialVel.normalize());
+			printf("New: vx: %5.4f, vy: %5.4f, vz: %5.4f\n",(double)newLinkLinearVel.x,(double)newLinkLinearVel.y,(double)newLinkLinearVel.z);
+			printf("New: px: %5.4f, py: %5.4f, pz: %5.4f\n",(double)newLinkPos.x,(double)newLinkPos.y,(double)newLinkPos.z);
+
+			// Remove element closest to anchor
+			tether->addLink(newLinkPos);
+			PxArticulationLink* startLink = tether->getStartLink();
+			// Attach link to anchor
+			anchorJoint->release();
+			anchorJoint = NULL;
+			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
+			// Set linear and angular velocity
+			startLink->setLinearVelocity(newLinkLinearVel);
+			startLink->setAngularVelocity(newLinkAngularVel);
+			added = true;
+		} else if(currentReelingDirection != None && anchorJoint != nullptr){
+		// Change distance without adding or removing elements
 			anchorJoint->release();
 			anchorJoint = NULL;
 			PxArticulationLink* startLink = tether->getStartLink();
 			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
 			// Update mass of start link
-			float startElementMass = 0.5f*(abs(distance)+elementLength)*characteristicMass;
+			// Start link mass is the weight of the whole tether spanning between the anchor and the first link and half the weight of the following tether element.
+			float startElementMass = (abs(distance)+0.5f*elementLength)*characteristicMass;
 			PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startElementMass);
 		}
 
 		bool isSleeping = gArticulation->isSleeping();
 		if(isSleeping){
 			gArticulation->wakeUp();
-		}
-
-		int nbElements = tether->getNbElements();
-		// Update tether (add/remove links)
-		if (currentReelingDirection == reelIn && distance < elementLength/2.0f && nbElements > 1)
-		{
-			// Remove element closest to anchor
-			tether->removeLink();
-			PxArticulationLink* startLink = tether->getStartLink();
-			// Attach link to anchor
-			distance += elementLength;
-			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
-		} else if(currentReelingDirection == reelOut && distance > elementLength*2 && nbElements < 64) {
-
-			PxArticulationLink* oldLink = tether->getStartLink();
-			PxVec3 oldLinkPosition = oldLink->getGlobalPose().p;
-			PxVec3 oldLinkLinearVelocity = oldLink->getLinearVelocity();
-			PxVec3 oldLinkAngularVelocity = oldLink->getAngularVelocity();
-			PxVec3 newLinkPosition = oldLinkPosition;
-			PxVec3 newLinkUnitVector = newLinkPosition;
-			newLinkUnitVector.normalize();
-			newLinkPosition -= newLinkUnitVector*elementLength;
-
-			// Remove element closest to anchor
-			tether->addLink(newLinkPosition);
-			PxArticulationLink* startLink = tether->getStartLink();
-			// Attach link to anchor
-			anchorJoint->release();
-			anchorJoint = NULL;
-			distance -= elementLength;
-			anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,distance,0.0f)));
-			// Set angular velocity
-			startLink->setAngularVelocity(oldLinkAngularVelocity);
-			// Set linear velocity
-			PxVec3 startLinkLinearVelocity = oldLinkLinearVelocity*distance/oldLinkPosition.magnitude();
-			startLink->setLinearVelocity(-startLinkLinearVelocity);
 		}
 	}
 }
@@ -418,19 +469,16 @@ void cleanupPhysics(bool /*interactive*/)
 
 void keyPress(unsigned char key, const PxTransform& /*camera*/)
 {
-	std::cout << key << std::endl;
 	if(key=='j') {
 		reelingVelocity = std::max(-maxReelingVelocity,reelingVelocity-dReelingVelocity);
 	} else if(key=='k') {
 		reelingVelocity = std::min(maxReelingVelocity,reelingVelocity+dReelingVelocity);
 	} else if(key=='m') {
-		float magnitude = 10.0f;
+		float magnitude = 1.0f;
 		bool autowake = true;
 		//box->addForce(PxVec3(magnitude, 0.0f,0.0f), PxForceMode::eIMPULSE,autowake);
 		// Apply force for tether force check
-		PxArticulationLink* lastLink = tether->getEndLink();
-		//lastLink->addForce(PxVec3(10.0f, 0.0f,0.0f), PxForceMode::eIMPULSE,autowake);
-		lastLink->addForce(PxVec3(magnitude,0.0f,0.0f), PxForceMode::eFORCE,autowake);
+		tether->getLink(1)->addForce(PxVec3(magnitude, 0.0f,0.0f), PxForceMode::eIMPULSE,autowake);
 	}
 }
 
