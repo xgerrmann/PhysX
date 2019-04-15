@@ -63,8 +63,8 @@ PxPvd*                  gPvd			= NULL;
 
 PxArticulationReducedCoordinate*	gArticulation = NULL;
 
-PxU32 subStepCount						= 1.0f;
-const float slowDown					= 100.0f*subStepCount;
+PxU32 subStepCount						= 20.0f;
+const float slowDown					= 50.0f*subStepCount;
 const float dt							= 1.0f/60.0f/slowDown;
 const int nLinks						= 20;
 const float gravity						= 9.81f;
@@ -383,7 +383,7 @@ void stepPhysics(bool /*interactive*/)
 			currentReelingDirection = reelOut;
 		}
 
-		while(added){}
+		//while(added){}
 		int nbElements = tether->getNbElements();
 		if (currentReelingDirection == reelIn && distance < elementLength/2.0f && nbElements > 1){
 		// Reelin + remove element
