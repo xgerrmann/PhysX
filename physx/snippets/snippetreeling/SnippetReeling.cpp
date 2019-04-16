@@ -64,8 +64,8 @@ PxPvd*                  gPvd			= NULL;
 PxArticulationReducedCoordinate*	gArticulation = NULL;
 
 PxU32 subStepCount						= 20.0f;
-const float slowDown					= 1.0f*subStepCount;
-const float dt							= 1.0f/60.0f/slowDown;
+const float slowDown					= 1.0f;
+const float dt							= 1.0f/60.0f/slowDown/subStepCount;
 const int nLinks						= 20;
 const float gravity						= 9.81f;
 const float elementLength				= 1.0f;
@@ -73,7 +73,7 @@ const float characteristicMass			= 0.013f;	// % [kg/m]
 const float radius						= 0.1f;
 
 float maxReelingVelocity				= 100;				// [m/s]
-float dReelingVelocity					= 10.0f/slowDown;	// [m/s]
+float dReelingVelocity					= 10.0f/slowDown/subStepCount;	// [m/s]
 float reelingVelocity					= 0.0f;				// [m/s]
 
 enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
@@ -553,18 +553,18 @@ void stepPhysics(bool /*interactive*/)
 		//	// Start link mass is the weight of the whole tether spanning between the anchor and the first link and half the weight of the following tether element.
 		//	float startElementMass = (abs(distance)+0.5f*elementLength)*characteristicMass;
 		//	PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startElementMass);
-		} else{
-			//if(added){getchar();}
-			std::cout << "Set drive target" << std::endl;
-			driveJoint->setDriveTarget(PxArticulationAxis::eY, distance);
-			driveJoint->setDriveVelocity(PxArticulationAxis::eY, reelingVelocity);
-			std::cout << reelingVelocity << std::endl;
+		} //else{
+		//if(added){getchar();}
+		std::cout << "Set drive target" << std::endl;
+		driveJoint->setDriveTarget(PxArticulationAxis::eY, distance);
+		driveJoint->setDriveVelocity(PxArticulationAxis::eY, reelingVelocity);
+		std::cout << reelingVelocity << std::endl;
 
-			bool isSleeping = gArticulation->isSleeping();
-			if(isSleeping){
-				gArticulation->wakeUp();
-			}
+		bool isSleeping = gArticulation->isSleeping();
+		if(isSleeping){
+			gArticulation->wakeUp();
 		}
+		//}
 	}
 }
 
