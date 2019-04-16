@@ -231,7 +231,7 @@ Tether::Tether(int nLinks){
 	//gArticulation->setMaxProjectionIterations(16);
 	//gArticulation->setSeparationTolerance(0.001f);
 
-	PxVec3 pos(0.0f,-(nLinks-1)*elementLength,0.0f);
+	PxVec3 pos(0.0f,-nLinks*elementLength,0.0f);
 
 	// Create rope
 	for(int i=0;i<nLinks;i++)
@@ -408,6 +408,7 @@ void stepPhysics(bool /*interactive*/)
 //	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
 	//while(added){}
 	for(PxU32 i=0; i < subStepCount; i++){
+//		getchar();
 		//float distance = tether->getStartLink()->getGlobalPose().p.normalize();
 		//logForce(t_elapsed_f);
 		t_elapsed_f += dt;
