@@ -75,7 +75,7 @@ const float gravity						= 9.81f;
 //const float elementLength				= 1.0f;
 const float elementLength				= 10.0f;
 const float characteristicMass			= 0.013f;	// % [kg/m]
-const float radius						= 0.1f;
+const float radius						= 0.2f;
 
 float maxReelingVelocity				= 100;				// [m/s]
 float dReelingVelocity					= 10.0f/slowDown/subStepCount;	// [m/s]
@@ -85,19 +85,20 @@ enum reelingDirection {reelIn = 0, reelOut = 1, None = 2};
 
 enum reelingDirection currentReelingDirection = None;
 
-PxRigidDynamic* anchor					= NULL;
+PxRigidDynamic* anchor					= nullptr;
 
-PxFixedJoint* anchorFixedJoint			= NULL;
-PxD6Joint* anchorD6Joint				= NULL;
+PxFixedJoint* anchorFixedJoint			= nullptr;
+PxD6Joint* anchorD6Joint				= nullptr;
 
-PxRigidDynamic* box						= NULL;
-PxFixedJoint* boxJoint					= NULL;
+PxRigidDynamic* box						= nullptr;
+PxFixedJoint* boxJoint					= nullptr;
 
-PxArticulationJointReducedCoordinate* driveJoint			= NULL;
+
+PxArticulationJointReducedCoordinate* driveJoint			= nullptr;
 
 bool flying								= true;		// [-]
-float windspeed							= 10;		// [m/s]
-float liftForce							= 1000;	// [N]
+float windspeed							= 40;		// [m/s]
+float liftForce							= 5000;	// [N]
 
 const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/data";
 std::fstream file;
@@ -201,7 +202,7 @@ void Tether::addLink(PxVec3 pos){
 	if(joint)	// Will be null for root link
 	{
 		// Joint must be located in child link. The child is the new link.
-		joint->setParentPose(PxTransform(PxVec3(0.0f, elementLength, 0.0f)));
+		joint->setParentPose(PxTransform(PxVec3(0.0f, -elementLength, 0.0f)));
 		joint->setChildPose(PxTransform(PxVec3(0.0f)));
 
 		// The joint type must be specified for reducedCoordinateArticulations
@@ -247,20 +248,21 @@ Tether::Tether(int nLinks){
 	//gArticulation->setMaxProjectionIterations(16);
 	//gArticulation->setSeparationTolerance(0.001f);
 
-	PxVec3 pos(0.0f,-(nLinks)*elementLength,0.0f);
+	PxVec3 pos(0.0f,nLinks*elementLength,0.0f);
 
 	// Create rope
 	for(int i=0;i<nLinks;i++)
 	{
 		addLink(pos);
-		pos.y += elementLength;
+		pos.y -= elementLength;
 	}
 	std::cout << "nbElements: " << nbElements << std::endl;
 }
 
-void createAttachment(){
+void createAttachment(float driveTarget){
 	// Attach articulation to origin (NULL)
-	anchorD6Joint = PxD6JointCreate(*gPhysics, tether->getStartLink(), PxTransform(PxVec3(0.0f,elementLength,0.0f)), anchor, PxTransform(PxVec3(PxZero)));
+	//anchorD6Joint = PxD6JointCreate(*gPhysics, tether->getStartLink(), PxTransform(PxVec3(0.0f,-elementLength,0.0f)), anchor, PxTransform(PxVec3(PxZero)));
+	anchorD6Joint = PxD6JointCreate(*gPhysics, tether->getStartLink(), PxTransform(PxVec3(PxZero)), anchor, PxTransform(PxVec3(PxZero)));
 	anchorD6Joint->setMotion(PxD6Axis::eX,      PxD6Motion::eLOCKED);
 //	anchorD6Joint->setMotion(PxD6Axis::eY,      PxD6Motion::eLOCKED);
 	anchorD6Joint->setMotion(PxD6Axis::eY,      PxD6Motion::eFREE); // Driven axis
@@ -276,12 +278,12 @@ void createAttachment(){
 	bool isAcceleration		= false;
 	//PxD6JointDriveFlag::eACCELERATION is recommended, however the following leads to increased oscillations:
 	//bool isAcceleration		= true;
-	PxD6JointDrive drive(driveStiffness, driveDamping, driveForceLimit, isAcceleration);
-	anchorD6Joint->setDrive(PxD6Drive::eY, drive);
+	PxD6JointDrive anchorDrive(driveStiffness, driveDamping, driveForceLimit, isAcceleration);
+	anchorD6Joint->setDrive(PxD6Drive::eY, anchorDrive);
 
 //	PxVec3 zeroVec(PxZero);
-//	bool autowake = true;
-//	anchorD6Joint->setDrivePosition(PxTransform(zeroVec),autowake);// Possibly needs a PxVec3
+	bool autowake = true;
+	anchorD6Joint->setDrivePosition(PxTransform(PxVec3(0.0f,-driveTarget,0.0f)),autowake);
 //	anchorD6Joint->setDriveVelocity(zeroVec,zeroVec, autowake);
 }
 
@@ -296,11 +298,11 @@ void attachBox(){
 	PxVec3 endLinkPos = endLink->getGlobalPose().p;
 
 	PxVec3 boxPos	= endLinkPos;
-	boxPos.y		-= 2*boxHalfSize;
+	boxPos.y		+= 2*boxHalfSize;
 
 	PxShape* boxShape = gPhysics->createShape(PxBoxGeometry(PxVec3(boxHalfSize)), *gMaterial);
 	box = PxCreateDynamic(*gPhysics, PxTransform(boxPos), *boxShape, boxDensity);
-	boxJoint = PxFixedJointCreate(*gPhysics, box, PxTransform(PxVec3(0.0f,2*boxHalfSize,0.0f)), endLink, PxTransform(PxVec3(0.0f)));
+	boxJoint = PxFixedJointCreate(*gPhysics, box, PxTransform(PxVec3(0.0f,-2*boxHalfSize,0.0f)), endLink, PxTransform(PxVec3(0.0f)));
 	gScene->addActor(*box);
 }
 
@@ -321,6 +323,9 @@ void initFile(){
 		<< "anchorForce_x,"
 		<< "anchorForce_y,"
 		<< "anchorForce_z,"
+		<< "boxJointForce_x,"
+		<< "boxJointForce_y,"
+		<< "boxJointForce_z,"
 		<< "startLink_pos_x,"
 		<< "startLink_pos_y,"
 		<< "startLink_pos_z,"
@@ -370,7 +375,14 @@ void logForce(float t){
 		secondLink	= tether->getLink(nbElements-2);
 	}
 	PxArticulationLink* endLink		= tether->getEndLink();
-	PxVec3 startLinkPos, startLinkVel, secondLinkPos, secondLinkVel, endLinkPos, endLinkVel;
+	PxVec3 boxJointForce, boxJointMoment, startLinkPos, startLinkVel, secondLinkPos, secondLinkVel, endLinkPos, endLinkVel;
+	if(boxJoint!=nullptr){
+		boxJoint->getConstraint()->getForce(boxJointForce, boxJointMoment);
+	} else {
+		boxJointForce = PxVec3(PxZero);
+		boxJointMoment = PxVec3(PxZero);
+	}
+
 	if(startLink != nullptr){
 		startLinkPos = startLink->getGlobalPose().p;
 		startLinkVel = startLink->getLinearVelocity();
@@ -400,6 +412,9 @@ void logForce(float t){
 		<< anchorForce.x << ","
 		<< anchorForce.y << ","
 		<< anchorForce.z << ","
+		<< boxJointForce.x << ","
+		<< boxJointForce.y << ","
+		<< boxJointForce.z << ","
 		<< startLinkPos.x << ","
 		<< startLinkPos.y << ","
 		<< startLinkPos.z << ","
@@ -502,7 +517,7 @@ void initPhysics(bool /*interactive*/)
 	//anchorFixedJoint	= PxFixedJointCreate(*gPhysics, NULL ,PxTransform(PxVec3(PxZero)), anchor, PxTransform(PxVec3(PxZero)));
 	gScene->addActor(*anchor);
 
-	createAttachment();
+	createAttachment(elementLength);
 	attachBox();
 
 	// Add articulation to scene
@@ -573,7 +588,7 @@ void stepPhysics(bool /*interactive*/)
 //	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
 	//static bool added = false;
 	static float t_elapsed_f = 0.0f;
-	static float driveTarget = 0;//tether->getStartLink()->getGlobalPose().p.normalize();
+	static float driveTarget = elementLength;//tether->getStartLink()->getGlobalPose().p.normalize();
 	//printf("Distance: %5.6f\r\n",(double)driveTarget);
 //	std::chrono::duration<double> t_elapsed_ch =std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
 //	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
@@ -582,9 +597,8 @@ void stepPhysics(bool /*interactive*/)
 		if(flying){
 			box->addForce(PxVec3(0.0f,liftForce, 0.0f), PxForceMode::eFORCE,true);
 		}
-		//box->addForce(PxVec3(200.0f,0.0f, 200.0f), PxForceMode::eFORCE,true);
 		logForce(t_elapsed_f);
-		printPositions();
+		//printPositions();
 		t_elapsed_f += dt;
 		
 		gScene->simulate(dt);
@@ -604,49 +618,43 @@ void stepPhysics(bool /*interactive*/)
 			currentReelingDirection = reelOut;
 		}
 		int nbElements = tether->getNbElements();
-		if (currentReelingDirection == reelIn && driveTarget < -elementLength/2.0f && nbElements > 1){
+//		float startElementDistance = tether->getStartLink()->getGlobalPose().p.magnitude();
+		//if (currentReelingDirection == reelIn && startElementDistance < -elementLength/2.0f && nbElements > 1){
+		if (currentReelingDirection == reelIn && driveTarget < elementLength/2.0f && nbElements > 1){
 		// Reelin + remove element
 			// Remove element closest to anchor
-			printf("Remove link.\r\n");
+			printf("Reelin: Remove link.\r\n");
 			tether->removeLink();
-			// Connect startLink to anchor
-			printf("Connect to origin.\r\n");
-			createAttachment();
 			// Update driveTarget
 			driveTarget += elementLength;
+			// Connect startLink to anchor
+			createAttachment(driveTarget);
 //			// Change joint pose
 			// TODO
+		//} else if(currentReelingDirection == reelOut && startElementDistance > elementLength*1.5f && nbElements < 64) {
 		} else if(currentReelingDirection == reelOut && driveTarget > elementLength*1.5f && nbElements < 64) {
-//			printf("\r\n##################NEWLINK#############\r\n\r\n");
-//			printf("Distance: %3.10f\r\n",(double)driveTarget);
-//			printPositions();
-//			PxVec3 startLinkpos			= tether->getStartLink()->getGlobalPose().p;
-//			PxVec3 secondLinkpos		= tether->getLink(tether->getNbElements()-2)->getGlobalPose().p;
-//			PxVec3 startLinkLinearVel	= tether->getStartLink()->getLinearVelocity();
-//			PxVec3 secondLinkLinearVel	= tether->getLink(tether->getNbElements()-2)->getLinearVelocity();
-//
-//			PxVec3 dStartSecond			= secondLinkpos - startLinkpos;
-//			printf("Actual Distance: %3.6f\r\n",(double)dStartSecond.magnitude());
-//			printf("New Actual Distance: %3.6f\r\n",(double)dStartSecond.magnitude()-(double)elementLength);
-//		// Reelout + add element
-//			// Update driveTarget
-//			printf("Target Distance: %3.6f\r\n",(double)driveTarget);
-//			driveTarget -= elementLength;
-//			printf("New Target Distance: %3.6f\r\n",(double)driveTarget);
-//			// Remove first link
-//			tether->removeLink();
-//			// Add 2 new links
-//			PxVec3 pos = tether->getStartLink()->getGlobalPose().p;
-//			pos += PxVec3(0.0f,elementLength,0.0f);
-//			tether->addLink(pos);
-//			tether->addLink(startLinkpos);
-//			PxArticulationLink* startLink = tether->getStartLink();
-//			// Set velocity of startlink and link 2
-//			bool autowake = true;
-//			tether->getLink(tether->getNbElements()-2)->setLinearVelocity(secondLinkLinearVel, autowake);
-//			tether->getStartLink()->setLinearVelocity(startLinkLinearVel,autowake);
-//
-//			// Change joint pose
+			//printf("Reelout: Add link.\r\n");
+			//// Release D6 joint
+			//PxConstraint* anchorConstraint= anchorD6Joint->getConstraint();
+			//anchorConstraint->release(); // Anchor destructor also calls the destructor of the related joint
+			//anchorD6Joint = nullptr; // Remove reference to released joint
+
+			//// Create new link
+			//PxVec3 startLinkPos = tether->getStartLink()->getGlobalPose().p;
+			//PxVec3 pos = startLinkPos - startLinkPos/(startLinkPos.magnitude())*elementLength;
+			//tether->addLink(pos);
+
+			//// Create Attachment
+			//createAttachment();
+
+			//// Update drive target
+			//driveTarget -= elementLength;
+
+			//// Change joint pose
+			//// TODO
+			////
+			//added = true;
+
 //			PxArticulationJointReducedCoordinate* reducedCoordinateJoint = static_cast<PxArticulationJointReducedCoordinate*>(startLink->getInboundJoint());
 //			reducedCoordinateJoint->setParentPose(PxTransform(PxVec3(0.0f, driveTarget, 0.0f)));
 //			reducedCoordinateJoint->setChildPose(PxTransform(PxVec3(0.0f)));
@@ -656,32 +664,6 @@ void stepPhysics(bool /*interactive*/)
 //			printf("Change joint to prismatic\r\n");
 //			PxArticulationLink* link = tether->getStartLink();
 //			sphericalJointToPrismatic( link->getInboundJoint() );
-//		
-//			
-//			//// Remove joint between startLink and anchor
-//			//anchorJoint->release();
-//			//anchorJoint = NULL;
-//			//// Relocate startLink
-//			//printf("Relocate\r\n");
-//			//PxArticulationLink* startLink = tether->getStartLink();
-//			//startLink->setGlobalPose(PxTransform(PxVec3(0.0f,-driveTarget,0.0f)));
-//			//// Change joint type from prismatic to spherical
-//			//PxArticulationLink* link = tether->getStartLink();
-//			//prismaticJointToSpherical(link->getInboundJoint());
-//			//// Change joint pose
-//			//PxArticulationJointReducedCoordinate* reducedCoordinateJoint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
-//			//reducedCoordinateJoint->setParentPose(PxTransform(PxVec3(0.0f, elementLength, 0.0f)));
-//			//reducedCoordinateJoint->setChildPose(PxTransform(PxVec3(0.0f)));
-//			//// Add link
-//			//tether->addLink(PxVec3(0.0f));
-//			//// Change link type from spherical to prismatic
-//			//link = tether->getStartLink();
-//			//sphericalJointToPrismatic(link->getInboundJoint());
-//			//// Attach new link to anchor
-//			//anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f)));
-//
-//			added = true;
-//			// Add new link
 //
 //		//	PxArticulationLink* oldLink		= tether->getStartLink();
 //		//	PxVec3 oldLinkPos				= oldLink->getGlobalPose().p;
@@ -703,50 +685,26 @@ void stepPhysics(bool /*interactive*/)
 //		//	printf("New: vx: %5.4f, vy: %5.4f, vz: %5.4f\n",(double)newLinkLinearVel.x,(double)newLinkLinearVel.y,(double)newLinkLinearVel.z);
 //		//	printf("New: px: %5.4f, py: %5.4f, pz: %5.4f\n",(double)newLinkPos.x,(double)newLinkPos.y,(double)newLinkPos.z);
 //
-//		//	// Remove element closest to anchor
-//		//	tether->addLink(newLinkPos);
-//		//	PxArticulationLink* startLink = tether->getStartLink();
-//		//	// Attach link to anchor
-//		//	anchorJoint->release();
-//		//	anchorJoint = NULL;
-//		//	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,driveTarget,0.0f)));
-//		//	// Set linear and angular velocity
-//		//	startLink->setLinearVelocity(newLinkLinearVel);
-//		//	startLink->setAngularVelocity(newLinkAngularVel);
-//		//	added = true;
-//		//} else if(currentReelingDirection != None && anchorJoint != nullptr){
-//		//// Change driveTarget without adding or removing elements
-//		//	anchorJoint->release();
-//		//	anchorJoint = NULL;
-//		//	PxArticulationLink* startLink = tether->getStartLink();
-//		//	anchorJoint = PxSphericalJointCreate(*gPhysics, anchor, PxTransform(PxVec3(0.0f)), startLink, PxTransform(PxVec3(0.0f,driveTarget,0.0f)));
 //		//	// Update mass of start link
 //		//	// Start link mass is the weight of the whole tether spanning between the anchor and the first link and half the weight of the following tether element.
 //		//	float startElementMass = (abs(driveTarget)+0.5f*elementLength)*characteristicMass;
 //		//	PxRigidBodyExt::setMassAndUpdateInertia(*startLink, startElementMass);
 //			//printf("Distance: %3.10f\r\n",(double)driveTarget);
-////			gArticulation->releaseCache(*articulationCache);
-////			articulationCache= gArticulation->createCache();
-//			std::cout << "Cache After" << std::endl;
-//			printCache();
 		} //else{
-		// Update mass of second link
-		// Second link mass is the weight of the whole tether spanning between the anchor and the first link and half the weight of the following tether element.
-		//float secondElementMass = abs(driveTarget)*characteristicMass;
-		//PxArticulationLink* secondLink = tether->getLink(tether->getNbElements()-2);
-		//PxRigidBodyExt::setMassAndUpdateInertia(*secondLink, secondElementMass);
-//		if(added){getchar();}
-//		std::cout << "Set drive target" << std::endl;
-		bool autowake = true;
-		PxVec3 zeroVec(PxZero);
-		anchorD6Joint->setDrivePosition(PxTransform(PxVec3(0.0f,driveTarget,0.0f)),autowake);// Possibly needs a PxVec3
-		anchorD6Joint->setDriveVelocity(PxVec3(0.0f,-reelingVelocity,0.0f),zeroVec, autowake);
-		std::cout << reelingVelocity << std::endl;
-
-		bool isSleeping = gArticulation->isSleeping();
-		if(isSleeping){
-			gArticulation->wakeUp();
+		printf("Drive target: %f\r\n",(double)driveTarget);
+		if(anchorD6Joint != nullptr){
+			printf("Setting reeling velocity: %f\r\n",(double)reelingVelocity);
+			bool autowake = true;
+			PxVec3 zeroVec(PxZero);
+			anchorD6Joint->setDrivePosition(PxTransform(PxVec3(0.0f,-driveTarget,0.0f)),autowake);
+			//anchorD6Joint->setDriveVelocity(PxVec3(0.0f,-reelingVelocity,0.0f),zeroVec, autowake);
 		}
+
+//		bool isSleeping = gArticulation->isSleeping();
+//		if(isSleeping){
+		gArticulation->wakeUp();
+//		}
+		anchor->wakeUp();
 		//}
 	}
 }
