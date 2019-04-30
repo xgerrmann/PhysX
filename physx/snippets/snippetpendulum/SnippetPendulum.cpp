@@ -62,12 +62,12 @@ PxPvd*                  gPvd			= NULL;
 
 PxArticulation*			gArticulation	= NULL;
 
-const float gravity	= 9.81f;
+const float gravity	= 9.810f;
 const float dt		= 1.0f/60.0f;
 const int n_steps	= 10000;
-const float distance= 1.0f;
-const float sphereMass = 1.0f;
-float inertia		= 2.0f;
+const float distance= 1.00f;
+const float sphereMass = 1.00f;
+float inertia		= 2.00f;
 int step_counter	= 0;
 float posx[n_steps];
 float posy[n_steps];
