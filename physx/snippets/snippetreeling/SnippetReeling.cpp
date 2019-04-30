@@ -72,7 +72,6 @@ const float slowDown					= 1.0f;
 const float dt							= 1.0f/60.0f/slowDown/subStepCount;
 const int nLinks						= 10;
 const float gravity						= 9.81f;
-//const float elementLength				= 1.0f;
 const float elementLength				= 10.0f;
 const float characteristicMass			= 0.013f;	// % [kg/m]
 const float radius						= 0.2f;
@@ -98,7 +97,7 @@ PxArticulationJointReducedCoordinate* driveJoint			= nullptr;
 
 bool flying								= true;		// [-]
 float windspeed							= 40;		// [m/s]
-float liftForce							= 5000;	// [N]
+float liftForce							= 5000;		// [N]
 
 const char* fpath = "/home/xander/Google Drive/Thesis/src/reeling_analysis/data/data";
 std::fstream file;
@@ -230,8 +229,6 @@ void Tether::addLink(PxVec3 pos){
 		newLink->setName(name);
 	}
 	std::cout << "Created link: " << newLink->getName() << std::endl;
-
-	// TODO: set joint type and see if velocity is still correct
 }
 
 Tether::Tether(int nLinks){
@@ -260,8 +257,7 @@ Tether::Tether(int nLinks){
 }
 
 void createAttachment(float driveTarget){
-	// Attach articulation to origin (NULL)
-	//anchorD6Joint = PxD6JointCreate(*gPhysics, tether->getStartLink(), PxTransform(PxVec3(0.0f,-elementLength,0.0f)), anchor, PxTransform(PxVec3(PxZero)));
+	// Attach articulation to anchor
 	anchorD6Joint = PxD6JointCreate(*gPhysics, tether->getStartLink(), PxTransform(PxVec3(PxZero)), anchor, PxTransform(PxVec3(PxZero)));
 	anchorD6Joint->setMotion(PxD6Axis::eX,      PxD6Motion::eLOCKED);
 //	anchorD6Joint->setMotion(PxD6Axis::eY,      PxD6Motion::eLOCKED);
@@ -437,46 +433,6 @@ void logForce(float t){
 	file.close();
 }
 
-//void sphericalJointToPrismatic(PxArticulationJointBase* joint){
-//	std::cout << "Set joint to prismatic" << std::endl;
-//	PxArticulationJointReducedCoordinate* reducedCoordinateJoint = static_cast<PxArticulationJointReducedCoordinate*>(joint);
-//	if(reducedCoordinateJoint){
-//		std::cout << "Set Joint to Drive" << std::endl;
-//		// The joint type must be specified for reducedCoordinateArticulations
-//		reducedCoordinateJoint->setJointType(PxArticulationJointType::ePRISMATIC);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eY , PxArticulationMotion::eFREE);
-//		// Disallow motions
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eSWING1 , PxArticulationMotion::eLOCKED);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eSWING2 , PxArticulationMotion::eLOCKED);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eTWIST ,  PxArticulationMotion::eLOCKED);
-//		
-//		PxReal stiffness = 100000.0f;
-//		PxReal damping = 10.0f;
-//		PxReal forceLimit = PX_MAX_F32;
-//		//PxArticulationDriveType::Enum driveType = PxArticulationDriveType::eFORCE;
-//		PxArticulationDriveType::Enum driveType = PxArticulationDriveType::eACCELERATION;
-//		reducedCoordinateJoint->setDrive(PxArticulationAxis::eY, stiffness, damping, forceLimit, driveType);
-////		Line below is only for maximal coordinate articulations
-////		reducedCoordinateJoint->setDriveType(PxArticulationJointDriveType::eERROR);
-//		driveJoint = reducedCoordinateJoint;
-//	}
-//}
-//
-//void prismaticJointToSpherical(PxArticulationJointBase* joint){
-//	std::cout << "Set joint to spherical" << std::endl;
-//	PxArticulationJointReducedCoordinate* reducedCoordinateJoint = static_cast<PxArticulationJointReducedCoordinate*>(joint);
-//	if(reducedCoordinateJoint){
-//		// The joint type must be specified for reducedCoordinateArticulations
-//		reducedCoordinateJoint->setJointType(PxArticulationJointType::eSPHERICAL);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eY , PxArticulationMotion::eLOCKED);
-//		// Disallow motions
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eSWING1 , PxArticulationMotion::eFREE);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eSWING2 , PxArticulationMotion::eFREE);
-//		reducedCoordinateJoint->setMotion(PxArticulationAxis::eTWIST ,  PxArticulationMotion::eFREE);
-//	}
-//}
-
-
 void initPhysics(bool /*interactive*/)
 {
 	gFoundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
@@ -519,8 +475,6 @@ void initPhysics(bool /*interactive*/)
 
 	createAttachment(elementLength);
 	attachBox();
-
-	// Add articulation to scene
 }
 
 void printPositions(){
@@ -618,8 +572,6 @@ void stepPhysics(bool /*interactive*/)
 			currentReelingDirection = reelOut;
 		}
 		int nbElements = tether->getNbElements();
-//		float startElementDistance = tether->getStartLink()->getGlobalPose().p.magnitude();
-		//if (currentReelingDirection == reelIn && startElementDistance < -elementLength/2.0f && nbElements > 1){
 		if (currentReelingDirection == reelIn && driveTarget < elementLength/2.0f && nbElements > 1){
 		// Reelin + remove element
 			// Remove element closest to anchor
@@ -631,29 +583,27 @@ void stepPhysics(bool /*interactive*/)
 			createAttachment(driveTarget);
 //			// Change joint pose
 			// TODO
-		//} else if(currentReelingDirection == reelOut && startElementDistance > elementLength*1.5f && nbElements < 64) {
 		} else if(currentReelingDirection == reelOut && driveTarget > elementLength*1.5f && nbElements < 64) {
-			//printf("Reelout: Add link.\r\n");
-			//// Release D6 joint
-			//PxConstraint* anchorConstraint= anchorD6Joint->getConstraint();
-			//anchorConstraint->release(); // Anchor destructor also calls the destructor of the related joint
-			//anchorD6Joint = nullptr; // Remove reference to released joint
+			printf("Reelout: Add link.\r\n");
+			// Release D6 joint
+			PxConstraint* anchorConstraint= anchorD6Joint->getConstraint();
+			anchorConstraint->release(); // Anchor destructor also calls the destructor of the related joint
+			anchorD6Joint = nullptr; // Remove reference to released joint
 
-			//// Create new link
-			//PxVec3 startLinkPos = tether->getStartLink()->getGlobalPose().p;
-			//PxVec3 pos = startLinkPos - startLinkPos/(startLinkPos.magnitude())*elementLength;
-			//tether->addLink(pos);
+			// Create new link
+			PxVec3 startLinkPos = tether->getStartLink()->getGlobalPose().p;
+			PxVec3 pos = startLinkPos - startLinkPos/(startLinkPos.magnitude())*elementLength;
+			tether->addLink(pos);
 
-			//// Create Attachment
-			//createAttachment();
+			// Update drive target
+			driveTarget -= elementLength;
 
-			//// Update drive target
-			//driveTarget -= elementLength;
+			// Create Attachment
+			createAttachment(driveTarget);
 
-			//// Change joint pose
-			//// TODO
-			////
-			//added = true;
+
+			// Change joint pose
+			// TODO
 
 //			PxArticulationJointReducedCoordinate* reducedCoordinateJoint = static_cast<PxArticulationJointReducedCoordinate*>(startLink->getInboundJoint());
 //			reducedCoordinateJoint->setParentPose(PxTransform(PxVec3(0.0f, driveTarget, 0.0f)));
