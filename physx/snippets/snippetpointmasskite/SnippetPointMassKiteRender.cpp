@@ -39,9 +39,10 @@
 using namespace physx;
 
 extern void initPhysics(bool interactive);
-extern void stepPhysics(bool interactive);	
+extern void stepPhysics(bool interactive);
 extern void cleanupPhysics(bool interactive);
 extern void keyPress(unsigned char key, const PxTransform& camera);
+
 
 
 namespace
@@ -71,6 +72,8 @@ void idleCallback()
 {
 	glutPostRedisplay();
 }
+
+void exitCallback(void);
 
 void renderCallback()
 {
