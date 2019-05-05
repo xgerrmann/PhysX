@@ -16,8 +16,7 @@ namespace px = physx;
 extern px::PxArticulationReducedCoordinate*	gArticulation;
 extern bool flying;
 
-const int nLinks						= 10;
-const float elementLength				= 10.0f;
+//const float elementLength				= 10.0f;
 //const float characteristicMass			= 0.013f;	// % [kg/m]
 const float characteristicMass			= 0.001f;	// % [kg/m]
 const float radius						= 0.2f;
@@ -31,16 +30,16 @@ class Tether {
 		void addLink(px::PxVec3 pos);
 		void removeLink();
 		int getNbElements();
-		Tether(int nLinks);
+		Tether(px::PxVec3, int nLinks);
 		void applyDrag();
 		px::PxArticulationLink* getLink(int linkIndex);
 	private:
 		px::PxArticulationLink* endLink   = NULL;
 		px::PxArticulationLink* startLink = NULL;
 
-		int nbElements = 0;
-
 		static const int maxNbElements = 64;
+		int nbElements		= 0;
+		float elementLength	= 0.0f;
 
 		px::PxArticulationLink* tetherElements[maxNbElements];
 };
@@ -138,6 +137,7 @@ void Tether::addLink(px::PxVec3 pos){
 	tetherElements[nbElements] = newLink;
 	nbElements += 1;
 
+	printf("nbelements: %d\r\n",nbElements);
 	// Give name to tether elements
 	char name[20];
 	if(nbElements == 1){
@@ -151,7 +151,10 @@ void Tether::addLink(px::PxVec3 pos){
 	std::cout << "Created link: " << newLink->getName() << std::endl;
 }
 
-Tether::Tether(int nLinks){
+Tether::Tether(px::PxVec3 initPos, int nLinks){
+	if(nLinks<=0){
+		throw std::runtime_error("Number of tether Elements must be at least 1.");
+	}
 	gMaterial = gPhysics->createMaterial(0.5f, 0.5f, 0.6f);
 
 	gArticulation = gPhysics->createArticulationReducedCoordinate();
@@ -162,13 +165,19 @@ Tether::Tether(int nLinks){
 	//gArticulation->setMaxProjectionIterations(16);
 	//gArticulation->setSeparationTolerance(0.001f);
 
-	px::PxVec3 pos(0.0f,nLinks*elementLength,0.0f);
+	px::PxVec3 pos	= initPos;
+	elementLength	= initPos.magnitude()/(nLinks);
+
+	printf("ElementLength: %f\r\n",(double)elementLength);
+	printf("Initpos: %f, %f, %f\r\n",(double)pos.x,(double)pos.y,(double)pos.z);
 
 	// Create rope
 	for(int i=0;i<nLinks;i++)
 	{
 		addLink(pos);
+		// Assume vertical initialization
 		pos.y -= elementLength;
+		printf("Pos: %f, %f, %f\r\n",(double)pos.x,(double)pos.y,(double)pos.z);
 	}
 	std::cout << "nbElements: " << nbElements << std::endl;
 }

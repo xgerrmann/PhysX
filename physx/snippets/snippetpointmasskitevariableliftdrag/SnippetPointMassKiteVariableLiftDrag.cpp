@@ -84,8 +84,18 @@ enum reelingDirection currentReelingDirection = None;
 
 float CL_CD								= 0.0f;
 
+// Tether settings
+const int nLinks						= 1;
+//const int nLinks						= 2;
+const float nominalDistance				= 100.0f;
+const float elementLength				= nominalDistance/(float)nLinks;
+
+
+
 char fpath[264];
 std::fstream file;
+
+int power = 0;
 
 
 void createAttachment(float driveTarget){
@@ -119,7 +129,7 @@ void createAttachment(float driveTarget){
 void initFile(){
 	// Setup filename
 	float ms = std::chrono::system_clock::now().time_since_epoch().count();
-	sprintf(fpath,"/home/xander/Google Drive/Thesis/src/2D_lift_drag_analysis/data/data_CL_CD_%.3f_%f",(double)CL_CD, (double)ms);
+	sprintf(fpath,"/home/xander/Google Drive/Thesis/src/2D_variable_lift_drag_analysis/data/data_%f", (double)ms);
 	// Save data
 	std::cout << fpath << std::endl;
 	std::ofstream file;
@@ -149,7 +159,8 @@ void initFile(){
 		<< "dragForce_z,"
 		<< "kitePosition_x,"
 		<< "kitePosition_y,"
-		<< "kitePosition_z"
+		<< "kitePosition_z,"
+		<< "powersetting"
 		<< std::endl;
 	file.close();
 }
@@ -173,21 +184,10 @@ void logForce(float t){
 		<< dragForce.z << ","
 		<< kitePosition.x << ","
 		<< kitePosition.y << ","
-		<< kitePosition.z
+		<< kitePosition.z << ","
+		<< power
 		<< std::endl;
 	file.close();
-	file<< "time,"
-		<< "nElements,"
-		<< "liftForce_x,"
-		<< "liftForce_y,"
-		<< "liftForce_z,"
-		<< "dragForce_x,"
-		<< "dragForce_y,"
-		<< "dragForce_z,"
-		<< "kitePosition_x,"
-		<< "kitePosition_y,"
-		<< "kitePosition_z"
-		<< std::endl;
 }
 
 void initPhysics(bool /*interactive*/)
@@ -221,9 +221,11 @@ void initPhysics(bool /*interactive*/)
 		pvdClient->setScenePvdFlag(PxPvdSceneFlag::eTRANSMIT_SCENEQUERIES, true);
 	}
 
-	tether	= new Tether(nLinks);
+	PxVec3 initPos(PxZero,nominalDistance , PxZero);
+	tether	= new Tether(initPos, nLinks);
 	PxArticulationLink* endLink	= tether->getEndLink();
 	kite	= new Kite(endLink);
+	kite->setPower(power);
 	gScene->addArticulation(*gArticulation);
 	articulationCache= gArticulation->createCache();
 
@@ -309,24 +311,33 @@ void printElevationAngle(){
 void stepPhysics(bool /*interactive*/)
 {
 //	const static float maxtime = 20.0f; // [s]
-	const static std::chrono::milliseconds maxtime = std::chrono::milliseconds(40000); // [ms]
-	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+//	const static std::chrono::milliseconds maxtime = std::chrono::milliseconds(40000); // [ms]
+//	static std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds> t_start = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
 	//static bool added = false;
 	static float t_elapsed_f = 0.0f;
 	//printf("Distance: %5.6f\r\n",(double)driveTarget);
-	std::chrono::milliseconds t_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
-	if(t_elapsed > maxtime){
-		exit(0);
-	}
+//	std::chrono::milliseconds t_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()-t_start);
+//	if(t_elapsed > maxtime){
+//		exit(0);
+//	}
 	static float driveTarget = elementLength;//tether->getStartLink()->getGlobalPose().p.normalize();
 //	std::cout << "Chrono: " << t_elapsed_ch.count() << ", simulation: " << t_elapsed_f << "dt: " << dt << std::endl;
+	static int n_steps = 0;
+//	float velocityThreshold = 0.01; // [m/s]
 	for(PxU32 i=0; i < subStepCount; i++){
 		if(flying){
 			kite->runAerodynamics();
 		}
-		logForce(t_elapsed_f);
-		//printPositions();
-		printElevationAngle();
+		if(t_elapsed_f>60.0f+30.0f*n_steps){
+			logForce(t_elapsed_f);
+			n_steps += 1;
+			power   -= 1;
+			kite->setPower(power);
+			printf("SET POWER: %d\r\n",power);
+		}
+		if(n_steps>90){
+			exit(0);
+		}
 		t_elapsed_f += dt;
 		
 		gScene->simulate(dt);
@@ -420,6 +431,14 @@ void keyPress(unsigned char key, const PxTransform& /*camera*/)
 	} else if(key=='m') {
 		float magnitude = 400.0f;
 		kite->addForce(PxVec3(magnitude, 0.0f, magnitude));
+	} else if(key==',') {
+		power -= 1;
+		kite->setPower(power);
+		printf("Power: %d\r\n",power);
+	} else if(key=='.') {
+		power += 1;
+		kite->setPower(power);
+		printf("Power: %d\r\n",power);
 	}
 }
 

@@ -36,6 +36,8 @@ class Kite {
 	const static int n_deg_max	= 360;		// [-]
 	int alpha[n_deg_max];
 	float Cl_variable[n_deg_max], Cd_variable[n_deg_max];
+
+	int power					= 0;		// [deg]
 	
 	aerodynamic_mode aero_mode	= MODE_VARIABLE;
 	//aerodynamic_mode aero_mode	= MODE_FIXED;
@@ -55,6 +57,8 @@ class Kite {
 		px::PxVec3 getPosition();
 		px::PxQuat getOrientation();
 
+		px::PxVec3 getLinearVelocity();
+
 		float getMass();
 		px::PxVec3 getLift();
 		px::PxVec3 getDrag();
@@ -62,6 +66,8 @@ class Kite {
 
 		float cl_alpha(float alpha);
 		float cd_alpha(float alpha);
+
+		void setPower(int pwr);
 
 	private:
 		px::PxRigidDynamic*	kiteDynamic	= nullptr;
@@ -96,6 +102,10 @@ Kite::Kite(px::PxArticulationLink* link){
 	//printf("CL: %5.5f, CD: %5.5f\r\n",(double)CL,(double)CD);
 
 	loadAeroData();
+}
+
+void Kite::setPower(int pwr){
+	power = pwr;
 }
 
 void Kite::loadAeroData(){
@@ -155,10 +165,14 @@ float Kite::cl_alpha(float alphaRad){
 	if(aero_mode == MODE_FIXED){
 		CL = static_CL;
 	} else{ // aero_mode == MODE_VARIABLE
-		float alphaDeg = constrainAngleDeg(rad2Deg(alphaRad));
-		int alphaDegInt = (int) round(alphaDeg);
-		int angleIndex  = alphaDegInt + 180;
-		CL = Cl_variable[angleIndex];
+		float alphaDeg  = constrainAngleDeg(rad2Deg(alphaRad));
+		int alphaDegMin = (int) floor(constrainAngleDeg(rad2Deg(alphaRad)));
+		int alphaDegMax = (int) ceil(constrainAngleDeg(rad2Deg(alphaRad)));
+		float remainder = alphaDeg - floor(alphaDeg);
+		int indexOffset = 180;
+		float CL_min = Cl_variable[alphaDegMin + indexOffset];
+		float CL_max = Cl_variable[alphaDegMax + indexOffset];
+		CL = CL_min + (CL_max-CL_min)* remainder;
 	}
 	return CL;
 }
@@ -168,10 +182,14 @@ float Kite::cd_alpha(float alphaRad){
 	if(aero_mode == MODE_FIXED){
 		CD = static_CD;
 	} else{ // aero_mode == MODE_VARIABLE
-		float alphaDeg = constrainAngleDeg(rad2Deg(alphaRad));
-		int alphaDegInt = (int) round(alphaDeg);
-		int angleIndex  = alphaDegInt + 180;
-		CD = Cd_variable[angleIndex];
+		float alphaDeg  = constrainAngleDeg(rad2Deg(alphaRad));
+		int alphaDegMin = (int) floor(constrainAngleDeg(rad2Deg(alphaRad)));
+		int alphaDegMax = (int) ceil(constrainAngleDeg(rad2Deg(alphaRad)));
+		float remainder = alphaDeg - floor(alphaDeg);
+		int indexOffset = 180;
+		float CD_min = Cd_variable[alphaDegMin + indexOffset];
+		float CD_max = Cd_variable[alphaDegMax + indexOffset];
+		CD = CD_min + (CD_max-CD_min)* remainder;
 	}
 	return CD;
 }
@@ -186,6 +204,10 @@ px::PxVec3 Kite::getPosition(){
 
 px::PxQuat Kite::getOrientation(){
 	return kiteDynamic->getGlobalPose().q;
+}
+
+px::PxVec3 Kite::getLinearVelocity(){
+	return kiteDynamic->getLinearVelocity();
 }
 
 px::PxConvexMesh* Kite::createMesh(){
@@ -246,17 +268,26 @@ float Kite::angleOfAttack(px::PxVec3 windVelocity){
 	px::PxVec3 ez(0,0,1);
 	px::PxVec3 ex_local = kiteOrientation.rotate(ex);
 	px::PxVec3 ez_local = kiteOrientation.rotate(ez);
-	printf("eX local: X: %f, Y: %f, Z; %f\r\n",(double)ex_local.x,(double)ex_local.y,(double)ex_local.z);
+//	printf("eX local: X: %f, Y: %f, Z; %f\r\n",(double)ex_local.x,(double)ex_local.y,(double)ex_local.z);
 
 	px::PxVec3 va_proj  = -(va - va.dot(ez_local)*ez); // Projected Va in opposite direction
-	printf("va_proj : X: %f, Y: %f, Z; %f\r\n",(double)va_proj.x,(double)va_proj.y,(double)va_proj.z);
+//	printf("va_proj : X: %f, Y: %f, Z; %f\r\n",(double)va_proj.x,(double)va_proj.y,(double)va_proj.z);
 	float numerator = va_proj.dot(ex_local);
 	float denominator = va_proj.magnitude()*ex_local.magnitude();
-	printf("num : %f, den: %f\r\n",(double)numerator,(double)denominator);
-	float alphaRad  = acos(numerator/denominator);
-	printf("alphaRad : %f\r\n",(double)alphaRad);
+//	printf("num : %f, den: %f\r\n",(double)numerator,(double)denominator);
 
-	return alphaRad;
+	float fraction = numerator/denominator;
+	// Prevent acos(>1) and acos(-1<) since it only works for the range [-1,1]
+	// can happen due to numerical reasons
+	if (fraction > 1.0f){
+		fraction = 1.0f ;
+	} else if (fraction < -1.0f){
+		fraction = -1.0f ;
+	}
+	float alphaRad  = acos(fraction);
+//	printf("alphaRad : %f\r\n",(double)alphaRad);
+
+	return alphaRad + deg2Rad(power); // Power setting is added here
 }
 
 void Kite::runAerodynamics(){
@@ -278,7 +309,7 @@ void Kite::runAerodynamics(){
 		Cd = static_CD;
 	} else{
 		float alphaRad = angleOfAttack(windVelocity);
-		printf("AoA: %f\n\r",(double)rad2Deg(alphaRad));
+//		printf("AoA: %f\n\r",(double)rad2Deg(alphaRad)+power);
 		Cl = cl_alpha(alphaRad);
 		Cd = cd_alpha(alphaRad);
 	}
@@ -293,8 +324,8 @@ void Kite::runAerodynamics(){
 
 	addForce(lift);
 	addForce(drag);
-	printf("LIFT X: %5.5f, Y: %5.5f, Z: %5.5f\r\n",(double)lift.x,(double)lift.y,(double)lift.z);
-	printf("DRAG X: %5.5f, Y: %5.5f, Z: %5.5f\r\n",(double)drag.x,(double)drag.y,(double)drag.z);
-	printf("Cl: %5.5f, Cd: %5.5f\r\n",(double)Cl,(double)Cd);
+//	printf("LIFT X: %5.5f, Y: %5.5f, Z: %5.5f\r\n",(double)lift.x,(double)lift.y,(double)lift.z);
+//	printf("DRAG X: %5.5f, Y: %5.5f, Z: %5.5f\r\n",(double)drag.x,(double)drag.y,(double)drag.z);
+//	printf("Cl: %5.5f, Cd: %5.5f\r\n",(double)Cl,(double)Cd);
 }
 #endif /* KITE_H */
